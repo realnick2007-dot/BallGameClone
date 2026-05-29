@@ -303,8 +303,8 @@ class PacketHandler {
                 socket.send(buffer, { binary: true });
         }
         else {
-            socket.readyState = this.server.WebSocket.CLOSED;
-            socket.emit('close');
+            // ws@8 fix: readyState is read-only, use terminate() instead of setting it manually
+            socket.terminate();
         }
     }
 }
