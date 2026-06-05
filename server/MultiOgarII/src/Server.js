@@ -462,7 +462,8 @@ class Server {
         // Loop main functions
         if (this.run) {
             // Move moving nodes first
-            this.movingNodes.forEach((cell) => {
+            var movingSnapshot = this.movingNodes.slice();
+            movingSnapshot.forEach((cell) => {
                 if (cell.isRemoved)
                     return;
                 // Scan and check for ejected mass / virus collisions
@@ -474,8 +475,10 @@ class Server {
                     else
                         self.resolveCollision(m);
                 });
-                if (!cell.isMoving)
-                    this.movingNodes = null;
+                if (!cell.isMoving) {
+                    var idx = self.movingNodes.indexOf(cell);
+                    if (idx > -1) self.movingNodes.splice(idx, 1);
+                }
             });
             // Update players and scan for collisions
             var eatCollisions = [];
@@ -640,21 +643,39 @@ class Server {
                     m.cell.owner.team == m.check.owner.team;
             }
         }
-        var r = this.config.mobilePhysics ? 1 : 13;
-        if (m.cell.getAge() < r || m.check.getAge() < r) {
-            return false; // just splited => ignore
+        var grace = this.config.splitGraceTime !== undefined ? this.config.splitGraceTime : (this.config.mobilePhysics ? 1 : 13);
+        if (m.cell.getAge() < grace || m.check.getAge() < grace) {
+            return false; // fully inside grace period => phase through
         }
         return !m.cell._canRemerge || !m.check._canRemerge;
     }
-    // Resolves rigid body collisions
+    // Resolves rigid body collisions with optional bloom ramp-up
     resolveRigidCollision(m) {
         var push = (m.cell._size + m.check._size - m.d) / m.d;
         if (push <= 0 || m.d == 0)
             return; // do not extrude
+
+        // --- Split bloom: cubic ramp-up of push force after grace period ---
+        var bloomScale = 1.0;
+        var bloomTime = this.config.splitBloomTime !== undefined ? this.config.splitBloomTime : 0;
+        if (bloomTime > 0 && m.cell.owner && m.check.owner && m.cell.owner === m.check.owner) {
+            var grace = this.config.splitGraceTime !== undefined ? this.config.splitGraceTime : 13;
+            var ageA = m.cell.getAge();
+            var ageB = m.check.getAge();
+            var youngestAge = Math.min(ageA, ageB);
+            var bloomAge = youngestAge - grace; // how far into the bloom window we are
+            if (bloomAge < bloomTime) {
+                // t goes 0 -> 1 across the bloom window, cubic ease-in
+                var t = Math.max(0, bloomAge / bloomTime);
+                bloomScale = t * t * t;
+            }
+        }
+        // --- End bloom ---
+
         // body impulse
         var rt = m.cell.radius + m.check.radius;
-        var r1 = push * m.cell.radius / rt;
-        var r2 = push * m.check.radius / rt;
+        var r1 = push * m.cell.radius / rt * bloomScale;
+        var r2 = push * m.check.radius / rt * bloomScale;
         // apply extrusion force
         m.cell.position.subtract(m.p.product(r2));
         m.check.position.add(m.p.product(r1));
@@ -695,7 +716,6 @@ class Server {
                 let max = Math.max(check._boostDistance, cell._boostDistance);
                 check.setBoost(max, check.owner.mouse.difference(check.position).angle());
             }
-            
         }
     }
     splitPlayerCell(client, parent, angle, mass) {
@@ -716,7 +736,6 @@ class Server {
             this.border.miny + this.border.height * Math.random());
     }
     onField(position) {
-        //console.log(position, {miny: this.border.miny, minx: this.border.minx, width: this.border.width, height: this.border.height})
         return this.border.minx <= position.x && position.x <= this.border.minx + this.border.width
             && this.border.miny <= position.y && position.y <= this.border.miny + this.border.height;
     }
@@ -856,8 +875,6 @@ class Server {
     }
     loadFiles() {
         const fs = require("fs")
-        //Logger.setVerbosity(this.config.logVerbosity);
-        //Logger.setFileVerbosity(this.config.logFileVerbosity);
         // Load bad words
         var fileNameBadWords = this.srcFiles + '/badwords.txt';
         try {
@@ -930,7 +947,6 @@ class Server {
         var fileNameIpBan = this.srcFiles + '/ipbanlist.txt';
         try {
             if (fs.existsSync(fileNameIpBan)) {
-                // Load and input the contents of the ipbanlist file
                 this.ipBanList = fs.readFileSync(fileNameIpBan, "utf8").split(/[\r\n]+/).filter(function (x) {
                     return x != ''; // filter empty lines
                 });
@@ -1000,9 +1016,7 @@ class Server {
         this.stats = JSON.stringify(s);
     }
     // Pings the server tracker, should be called every 30 seconds
-    // To list us on the server tracker located at http://ogar.mivabe.nl/master
     pingServerTracker() {
-        // Get server statistics
         var os = require('os');
         var totalPlayers = 0;
         var alivePlayers = 0;
@@ -1023,17 +1037,16 @@ class Server {
                     spectatePlayers++;
             }
         }
-        // ogar.mivabe.nl/master
         var data = 'current_players=' + totalPlayers +
             '&alive=' + alivePlayers +
             '&spectators=' + spectatePlayers +
             '&max_players=' + this.config.serverMaxConnections +
             '&sport=' + this.config.serverPort +
-            '&gamemode=[**] ' + this.mode.name + // we add [**] to indicate that this is MultiOgarII-Continued server
-            '&agario=true' + // protocol version
-            '&name=Unnamed Server' + // we cannot use it, because other value will be used as dns name
-            '&opp=' + os.platform() + ' ' + os.arch() + // "win32 x64"
-            '&uptime=' + process.uptime() + // Number of seconds server has been running
+            '&gamemode=[**] ' + this.mode.name +
+            '&agario=true' +
+            '&name=Unnamed Server' +
+            '&opp=' + os.platform() + ' ' + os.arch() +
+            '&uptime=' + process.uptime() +
             '&version=MultiOgarII-Continued ' + this.version +
             '&start_time=' + this.startTime;
         trackerRequest({

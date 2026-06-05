@@ -166,6 +166,12 @@ module.exports = Object.seal({
 // playerDecayCap: Maximum mass a cell can have before it's decayrate multiplies by 10. (0 to disable)
 // playerDisconnectTime: Time in seconds before a disconnected player's cell is removed from the server (Set to -1 to never remove)
 // splitVelocity: Velocity of splitting playercells (speed and distance)
+//
+// [SPLIT BLOOM]
+// splitGraceTime: Ticks after a split where sibling collision is fully ignored (phase-through). 1 tick = 40ms. (vanilla-style: 13)
+// splitBloomTime: Ticks after grace period during which collision force ramps from 0 to full using a cubic curve.
+//                 e.g. 13 grace + 26 bloom = ~1.5 seconds total before full separation force.
+//                 Set splitBloomTime to 0 to disable bloom (hard collision after grace like vanilla).
 "playerMinSize": 31.6227766017,
 "playerMaxSize": 3162,
 "playerAutosplitCells": 1,
@@ -180,6 +186,8 @@ module.exports = Object.seal({
 "playerMaxNickLength": 15,
 "playerDisconnectTime": -1,
 "splitVelocity": 1024,
+"splitGraceTime": 13,
+"splitBloomTime": 26,
 
 // [MINIONS]
 // Custom minion settings
