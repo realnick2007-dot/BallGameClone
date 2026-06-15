@@ -114,7 +114,10 @@
 
     /* ── Keyboard handler ───────────────────────────────────────────────── */
     function onKeyDown(e) {
-        if (!inventoryVisible) return;
+        // Block if the main menu/overlay is showing (hasOverlay is set by main_out.js).
+        // Do NOT gate on inventoryVisible — the HUD visibility must not prevent the
+        // packet from being sent; that was the bug causing key 3 to silently do nothing.
+        if (typeof hasOverlay !== 'undefined' && hasOverlay) return;
         var active = document.activeElement;
         if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
 
