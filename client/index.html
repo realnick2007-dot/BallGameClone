@@ -21,7 +21,8 @@
     <script src="https://code.jquery.com/jquery-1.11.3.min.js"></script>
     <script src="assets/js/log.js"></script>
     <script src="assets/js/vector.js"></script>
-    <script src="assets/js/main_out.js?v=2"></script> 
+    <script src="assets/js/main_out.js?v=2"></script>
+    <script src="assets/js/inventory.js?v=1"></script>
 </head>
 
 <body>
@@ -129,11 +130,9 @@
     <canvas id="canvas" width="800" height="600"></canvas>
     <input type="text" id="chat_textbox" placeholder="Press enter to chat!" maxlength="200" />
 
-    <!-- Physical inventory HUD -->
-    <div id="inventory">
-        <!-- Slots are injected by inventory.js logic in main_out.js -->
-    </div>
-    <!-- Drag ghost element -->
+    <!-- Physical inventory HUD — slots built by inventory.js -->
+    <div id="inventory"></div>
+    <!-- Drag ghost -->
     <div id="inv-drag-ghost"></div>
 
     <div style="font-family:'Ubuntu'">&nbsp;</div>
