@@ -649,36 +649,47 @@ class Server {
         }
         return !m.cell._canRemerge || !m.check._canRemerge;
     }
-    // Resolves rigid body collisions with optional bloom ramp-up
+    // Resolves rigid body collisions with deferred gradual cubic bloom ramp-up
+    // Bloom window: ~0.5 seconds (13 ticks at 40ms/tick) after grace period
     resolveRigidCollision(m) {
-        var push = (m.cell._size + m.check._size - m.d) / m.d;
-        if (push <= 0 || m.d == 0)
-            return; // do not extrude
+        if (m.d == 0) return; // coincident cells — skip to avoid division by zero
+
+        var overlap = m.cell._size + m.check._size - m.d;
+        if (overlap <= 0) return; // not overlapping
+
+        // Normalize push by summed radii so force stays consistent regardless of cell size.
+        // Using _size (not radius=size^2) for a physically correct mass-weighted impulse.
+        var totalSize = m.cell._size + m.check._size;
+        // push: fraction of overlap relative to total diameter — keeps force bounded [0, 0.5]
+        var push = overlap / totalSize;
 
         // --- Split bloom: cubic ramp-up of push force after grace period ---
+        // Default bloom window: 13 ticks ≈ 0.5 seconds (server runs at 40ms/tick)
         var bloomScale = 1.0;
-        var bloomTime = this.config.splitBloomTime !== undefined ? this.config.splitBloomTime : 0;
+        var bloomTime = this.config.splitBloomTime !== undefined ? this.config.splitBloomTime : 13;
         if (bloomTime > 0 && m.cell.owner && m.check.owner && m.cell.owner === m.check.owner) {
-            var grace = this.config.splitGraceTime !== undefined ? this.config.splitGraceTime : 13;
+            var grace = this.config.splitGraceTime !== undefined ? this.config.splitGraceTime : (this.config.mobilePhysics ? 1 : 13);
             var ageA = m.cell.getAge();
             var ageB = m.check.getAge();
             var youngestAge = Math.min(ageA, ageB);
-            var bloomAge = youngestAge - grace; // how far into the bloom window we are
+            var bloomAge = youngestAge - grace; // ticks elapsed since grace ended
             if (bloomAge < bloomTime) {
-                // t goes 0 -> 1 across the bloom window, cubic ease-in
+                // t: 0 -> 1 over the bloom window, cubic ease-in for smooth ramp
                 var t = Math.max(0, bloomAge / bloomTime);
                 bloomScale = t * t * t;
             }
+            // bloomAge >= bloomTime => bloomScale stays 1.0 (full force)
         }
         // --- End bloom ---
 
-        // body impulse
-        var rt = m.cell.radius + m.check.radius;
-        var r1 = push * m.cell.radius / rt * bloomScale;
-        var r2 = push * m.check.radius / rt * bloomScale;
-        // apply extrusion force
-        m.cell.position.subtract(m.p.product(r2));
-        m.check.position.add(m.p.product(r1));
+        // Mass-weighted impulse: larger cell moves less, smaller cell moves more.
+        // Weight by _size so impulse ratio reflects relative cell diameter.
+        var r1 = push * m.check._size / totalSize * bloomScale; // displacement for cell
+        var r2 = push * m.cell._size  / totalSize * bloomScale; // displacement for check
+
+        // Apply extrusion along collision normal (p points from cell -> check)
+        m.cell.position.subtract(m.p.product(r1));
+        m.check.position.add(m.p.product(r2));
     }
     // Resolves non-rigid body collision
     resolveCollision(m) {
