@@ -11,14 +11,18 @@ var Cell = require('./Cell');
  *   - type 4 = MotherCell
  *   - type 5 = GrowthPellet  <-- us
  *
- * Using type 1 (food) caused the pellet to enter the normal food eat path in
- * resolveCollision, which requires the eater to be 1.15x the pellet's size AND
- * only calls onEat on the eater — onEaten on the pellet was NEVER reached.
- * With type 5 we add a dedicated branch in resolveCollision that always lets a
- * PlayerCell eat it and correctly calls pellet.onEaten(eaterCell).
+ * Fix 1 (double-push crash): onAdd() pushes 'this' into nodesGrowthPellets.
+ *   spawnGrowthPellet() in Server.js was ALSO pushing it after addNode().
+ *   That caused every pellet to appear twice in the array. The mainLoop expiry
+ *   block would removeNode() the first reference (setting isRemoved=true and
+ *   quadItem=null), then hit the duplicate and call removeNode() again on a node
+ *   with quadItem=null — quadTree.remove(null) threw an unhandled exception that
+ *   killed the WebSocket process with error 1006.
  *
- * Rendered as a bright cyan dot — vanilla clients show any type as a coloured
- * circle so no client-side changes are needed.
+ * Fix 2 (NaN expiry): mainLoop reads pellet.createdAt for lifetime checks.
+ *   The old constructor set this._spawnTick instead of this.createdAt, so
+ *   pellet.createdAt was always undefined, making the comparison NaN — every
+ *   pellet was flagged for removal on every single tick, compounding the crash.
  */
 class GrowthPellet extends Cell {
     constructor(server, owner, position, size) {
@@ -31,7 +35,8 @@ class GrowthPellet extends Cell {
             g: 0xff,
             b: 0x88
         };
-        this._spawnTick = server ? server.ticks : 0;
+        // Fix 2: was this._spawnTick — mainLoop expiry reads this.createdAt
+        this.createdAt = server ? server.ticks : 0;
     }
 
     // Pellets never eat other cells.
@@ -53,16 +58,13 @@ class GrowthPellet extends Cell {
         eater.setSize(Math.min(newSize, cap));
     }
 
+    // Fix 1: onAdd() is the ONLY place this pellet is pushed into nodesGrowthPellets.
+    // spawnGrowthPellet() in Server.js must NOT push again after calling addNode().
     onAdd(server) {
         server.nodesGrowthPellets = server.nodesGrowthPellets || [];
         server.nodesGrowthPellets.push(this);
-        var lifeMs = (server.config.growthPelletLifeTime || 0) * 1000;
-        if (lifeMs > 0) {
-            var self = this;
-            setTimeout(function () {
-                if (!self.isRemoved) server.removeNode(self);
-            }, lifeMs);
-        }
+        // setTimeout-based lifetime is handled by mainLoop via createdAt — no
+        // separate timer needed. Keeping this clean avoids double-remove races.
     }
 
     onRemove(server) {
