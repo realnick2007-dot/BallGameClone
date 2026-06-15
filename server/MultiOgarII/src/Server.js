@@ -793,6 +793,30 @@ class Server {
         // Do not resolve removed
         if (cell.isRemoved || check.isRemoved)
             return;
+
+        // --- Growth pellet (type 5): any PlayerCell eats it unconditionally ---
+        // Mirrors the forced=true path used by spawnVirus: no size ratio required,
+        // no canEat() gating. The pellet just needs to be overlapped by a player cell.
+        if (cell.type === 5 && check.type === 0) {
+            if (m.d < check._size) {
+                check.onEat(cell);
+                cell.onEaten(check);
+                cell.killer = check;
+                this.removeNode(cell);
+            }
+            return;
+        }
+        if (check.type === 5 && cell.type === 0) {
+            if (m.d < cell._size) {
+                cell.onEat(check);
+                check.onEaten(cell);
+                check.killer = cell;
+                this.removeNode(check);
+            }
+            return;
+        }
+        // --- End growth pellet ---
+
         // check eating distance
         check.div = this.config.mobilePhysics ? 20 : 3;
         if (m.d >= check._size - cell._size / check.div) {
@@ -852,13 +876,11 @@ class Server {
             this.addNode(virus);
         }
     }
+    // Mirrors spawnVirus(position, forced=true):
+    // position is always player-cursor (already on-field), skip willCollide check.
     spawnGrowthPellet(position, owner) {
         if (!position) position = this.randomPos();
-        // Clamp to border instead of silently returning
-        position = new Vec2(
-            Math.max(this.border.minx, Math.min(position.x, this.border.maxx)),
-            Math.max(this.border.miny, Math.min(position.y, this.border.maxy))
-        );
+        if (!this.onField(position)) return null;
         var pellet = new Entity.GrowthPellet(this, owner, position, this.config.growthPelletSize);
         this.addNode(pellet);
         return pellet;
