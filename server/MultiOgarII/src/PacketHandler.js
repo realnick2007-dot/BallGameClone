@@ -166,16 +166,17 @@ class PacketHandler {
         this.socket.playerTracker.minionFrozen = !this.socket.playerTracker.minionFrozen;
     }
     message_onKeyG(message) {
-        if (!this.server.config.powerupRecombine || !this.socket.playerTracker.canUseRecombine()) {
-            if (this.server.config.powerupRecombineEvery) this.socket.playerTracker.lastUsedRecombine = this.server.ticks;
+        var client = this.socket.playerTracker;
+        if (!this.server.config.powerupRecombine || !client.canUseRecombine()) {
+            if (this.server.config.powerupRecombineEvery) client.lastUsedRecombine = this.server.ticks;
             return;
         }
-        this.socket.playerTracker.cells.forEach(cell => {
-            cell.saveBoost();
-            cell.setBoost(0, 0);
-        });
-        if (this.socket.playerTracker.cells.length > 1) this.socket.playerTracker.mergeOverride = true;
-        this.socket.playerTracker.lastUsedRecombine = this.server.ticks;
+        if (client.spectate) return;
+        // Activate recombine mode — mergeOverride drives the actual merging.
+        // Do NOT call setBoost/saveBoost here: that is what causes the forward push
+        // when cells consume each other under mergeOverride.
+        if (client.cells.length > 1) client.mergeOverride = true;
+        client.lastUsedRecombine = this.server.ticks;
     }
     message_onChat(message) {
         if (message.length < 3)

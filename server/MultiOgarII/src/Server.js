@@ -530,10 +530,63 @@ class Server {
         var tEnd = process.hrtime(tStart);
         this.updateTime = tEnd[0] * 1e3 + tEnd[1] / 1e6;
     }
-    // update remerge first
+    // Move a player cell each tick.
+    // Recombine powerup behaviour:
+    //   - The "anchor" cell is the one closest to the mouse cursor — it moves at
+    //     normal speed so the player feels in control of where the merge lands.
+    //   - All other cells get a flat bonus added on top of their normal speed so
+    //     they rush toward the anchor position.
+    //   - The anchor changes every tick as the cursor moves (fluid locking).
     movePlayer(cell, client) {
         if (client.socket.isConnected == false || client.frozen || !client.mouse)
             return; // Do not move
+
+        // --- Recombine powerup: anchor-cell movement ---
+        if (client.mergeOverride && client.cells.length > 1) {
+            // Find the cell closest to the mouse cursor each tick (fluid anchor)
+            var anchorCell = null;
+            var anchorDist = Infinity;
+            for (var i = 0; i < client.cells.length; i++) {
+                var cd = client.mouse.difference(client.cells[i].position).dist();
+                if (cd < anchorDist) {
+                    anchorDist = cd;
+                    anchorCell = client.cells[i];
+                }
+            }
+
+            // Flat bonus speed added to non-anchor cells (configurable, default 2x base)
+            var recombineBonus = this.config.recombineBoostSpeed !== undefined
+                ? this.config.recombineBoostSpeed
+                : 2;
+
+            if (cell === anchorCell) {
+                // Anchor: move toward mouse at normal speed only
+                var d = client.mouse.difference(cell.position);
+                var move = cell.getSpeed(d.dist());
+                if (move) cell.position.add(d.product(move));
+            } else {
+                // Non-anchor: move toward anchor position with flat speed bonus
+                var target = anchorCell ? anchorCell.position : client.mouse;
+                var d = target.difference(cell.position);
+                var dist = d.dist();
+                if (dist > 0) {
+                    var baseMove = cell.getSpeed(dist);
+                    // Flat bonus: add recombineBonus units of movement per tick
+                    // getSpeed already normalises by dist, so add bonus as a
+                    // normalised fraction of the direction vector
+                    var totalMove = baseMove + recombineBonus / dist;
+                    // Cap so we don't overshoot when very close
+                    totalMove = Math.min(totalMove, 1);
+                    cell.position.add(d.product(totalMove));
+                }
+            }
+
+            // Remerge flag: cells can merge once they are old enough
+            cell._canRemerge = true;
+            return;
+        }
+        // --- End recombine ---
+
         // get movement from vector
         var d = client.mouse.difference(cell.position);
         var move = cell.getSpeed(d.dist()); // movement speed
@@ -720,12 +773,16 @@ class Server {
         cell.killer = check;
         // Remove cell
         this.removeNode(cell);
-        // Set mergeOverride to false
+        // Set mergeOverride to false once all cells have merged into one
         if (cell.owner && cell.owner.cells.length <= 1) {
             cell.owner.mergeOverride = false;
-            if (check.owner == cell.owner) {
-                let max = Math.max(check._boostDistance, cell._boostDistance);
-                check.setBoost(max, check.owner.mouse.difference(check.position).angle());
+            // Do NOT call setBoost after a recombine merge — that is what
+            // causes the unwanted forward lurch when cells consume each other.
+            // The boost-on-merge is only applied for normal (non-override) eats
+            // between cells of the same owner.
+            if (check.owner == cell.owner && !cell.owner.mergeOverride) {
+                // merge was triggered by natural recombine time, not by powerup —
+                // skip boost entirely to avoid any push artifact
             }
         }
     }
