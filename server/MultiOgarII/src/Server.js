@@ -852,13 +852,16 @@ class Server {
             this.addNode(virus);
         }
     }
-    // Spawns a GrowthPellet at the given position (defaults to mouse cursor passed in from PacketHandler).
-    // Mirrors spawnVirus: bounds-checks the position, skips if off-map.
     spawnGrowthPellet(position, owner) {
         if (!position) position = this.randomPos();
-        if (!this.onField(position)) return;
+        // Clamp to border instead of silently returning
+        position = new Vec2(
+            Math.max(this.border.minx, Math.min(position.x, this.border.maxx)),
+            Math.max(this.border.miny, Math.min(position.y, this.border.maxy))
+        );
         var pellet = new Entity.GrowthPellet(this, owner, position, this.config.growthPelletSize);
         this.addNode(pellet);
+        return pellet;
     }
     spawnCells(virusCount, foodCount) {
         for (var i = 0; i < foodCount; i++) {

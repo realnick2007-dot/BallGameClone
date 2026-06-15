@@ -141,17 +141,16 @@ class PacketHandler {
         this.server.spawnVirus(this.socket.playerTracker.mouse, true);
         this.socket.playerTracker.lastUsedVirus = this.server.ticks;
     }
-    // Growth pellet powerup — spawns a physical GrowthPellet entity at the player's cursor
+    // Growth pellet powerup — spawns a GrowthPellet at the player's cursor
     message_onKey3(message) {
         var client = this.socket.playerTracker;
-        // BUG 1 FIX: must be alive (have cells) before spawning a pellet
         if (!this.server.config.powerupGrowth || client.spectate || client.cells.length === 0) return;
         if (!client.canUseGrowth()) {
             if (this.server.config.powerupGrowthEvery) client.lastUsedGrowth = this.server.ticks;
             return;
         }
-        this.server.spawnGrowthPellet(client.mouse, client);
-        client.lastUsedGrowth = this.server.ticks;
+        var pellet = this.server.spawnGrowthPellet(client.mouse, client);
+        if (pellet) client.lastUsedGrowth = this.server.ticks;
     }
     message_onKeyW(message) {
         if (message.length !== 1)
