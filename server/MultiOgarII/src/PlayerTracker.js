@@ -45,6 +45,7 @@ class PlayerTracker {
         // Powerups
         this.lastUsedRecombine = 0;
         this.lastUsedVirus = 0;
+        this.lastUsedGrowth = 0;
         // Custom commands
         this.spawnmass = 0;
         this.frozen = false;
@@ -97,6 +98,9 @@ class PlayerTracker {
     }
     canUseVirus() {
         return this.lastUsedVirus + this.server.config.powerupVirusDelay * 25 <= this.server.ticks;
+    }
+    canUseGrowth() {
+        return this.lastUsedGrowth + this.server.config.powerupGrowthDelay * 25 <= this.server.ticks;
     }
     setName(name) {
         this._name = name;
@@ -342,12 +346,6 @@ class PlayerTracker {
                 return;
         }
         else if (this.server.run) {
-            // Disable mergeOverride on the last merging cell
-            /*if (this.cells.length <= 2)
-                this.mergeOverride = false;*/
-            // Cant split if merging or frozen
-            /*if (this.mergeOverride || this.frozen)
-                return;*/
             if (this.mergeOverride)
                 this.mergeOverride = false;
             this.server.splitCells(this);

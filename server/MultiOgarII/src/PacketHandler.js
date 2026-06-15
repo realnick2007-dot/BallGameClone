@@ -62,6 +62,7 @@ class PacketHandler {
             24: this.message_onKeyT.bind(this),
             26: this.message_onKeyG.bind(this),
             27: this.message_onKeyH.bind(this),
+            28: this.message_onKey3.bind(this),  // Growth pellet powerup
             99: this.message_onChat.bind(this),
             254: this.message_onStat.bind(this),
         };
@@ -139,6 +140,17 @@ class PacketHandler {
         }
         this.server.spawnVirus(this.socket.playerTracker.mouse, true);
         this.socket.playerTracker.lastUsedVirus = this.server.ticks;
+    }
+    // Growth pellet powerup — spawns a physical GrowthPellet entity at the player's cursor
+    message_onKey3(message) {
+        var client = this.socket.playerTracker;
+        if (!this.server.config.powerupGrowth || client.spectate) return;
+        if (!client.canUseGrowth()) {
+            if (this.server.config.powerupGrowthEvery) client.lastUsedGrowth = this.server.ticks;
+            return;
+        }
+        this.server.spawnGrowthPellet(client.mouse, client);
+        client.lastUsedGrowth = this.server.ticks;
     }
     message_onKeyW(message) {
         if (message.length !== 1)

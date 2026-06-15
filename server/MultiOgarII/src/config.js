@@ -92,6 +92,12 @@ module.exports = Object.seal({
 // powerupRecombineDelay: limit in seconds of using recombine powerup
 // powerupRecombineEvery: include failed tries of using recombine when counting limit (helps preventing multidropping in case of viruses)
 // powerupVirus*: the same as with recombine powerup
+// powerupGrowth: enable growth pellet powerup (key 3 — spawns a physical GrowthPellet entity at cursor)
+// powerupGrowthDelay: seconds between each growth pellet spawn (0 = no cooldown)
+// powerupGrowthEvery: count failed spawn attempts toward the delay timer
+// growthPelletSize: radius of the spawned pellet (clients see it as a large food dot)
+// growthPelletMassBoost: mass added to the eating cell when the pellet is consumed
+// growthPelletLifeTime: seconds before the pellet auto-expires (0 = never expires)
 "powerupRecombine": true,
 "powerupRecombineDelay": 0,
 "powerupRecombineEvery": false,
@@ -99,6 +105,12 @@ module.exports = Object.seal({
 "powerupVirus": true,
 "powerupVirusDelay": 0.1,
 "powerupVirusEvery": true,
+"powerupGrowth": true,
+"powerupGrowthDelay": 0,
+"powerupGrowthEvery": false,
+"growthPelletSize": 80,
+"growthPelletMassBoost": 500,
+"growthPelletLifeTime": 10,
 
 // [BORDER]
 // Border size (vanilla 14142.135623730952)
