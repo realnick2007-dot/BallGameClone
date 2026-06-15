@@ -68,7 +68,8 @@
             pPressed = false,
             wPressed = false,
             gPressed = false,
-            hPressed = false;
+            hPressed = false,
+            threePressed = false;
         wHandle.onkeydown = function(event) {
             switch (event.keyCode) {
                 case 13: // enter
@@ -149,12 +150,16 @@
                         gPressed = true;
                     }
                     break;
+                case 51: // 3 — Growth Pellet
+                    if (!threePressed && (!isTyping)) {
+                        sendMouseMove();
+                        sendUint8(28);
+                        threePressed = true;
+                    }
+                    break;
                 case 27: // esc
                     showOverlays(true);
                     break;
-                // NOTE: key 51 ("3") is handled by inventory.js so the
-                // cooldown ring and flash are managed there.  No duplicate
-                // handler needed here.
             }
         };
         wHandle.onkeyup = function(event) {
@@ -188,11 +193,15 @@
                     break;
                 case 71:
                     gPressed = false;
+                    break;
+                case 51: // 3
+                    threePressed = false;
+                    break;
             }
         };
         wHandle.onblur = function() {
             sendUint8(19);
-            wPressed = spacePressed = qPressed = ePressed = rPressed = tPressed = pPressed = false
+            wPressed = spacePressed = qPressed = ePressed = rPressed = tPressed = pPressed = threePressed = false
         };
 
         wHandle.onresize = canvasResize;
