@@ -549,15 +549,27 @@ class Server {
                 this.resolveCollision(m);
             });
             // Remove dead viruses
+            // FIX: iterate a snapshot so that onRemove()'s splice() cannot skip
+            // elements or revisit an already-removed node (quadItem=null crash).
             if (this.config.virusLifeTime) {
-                this.nodesVirus.forEach(virus => {
-                    if (this.ticks >= virus.createdAt + this.config.virusLifeTime * 25) this.removeNode(virus);
+                var virusSnapshot = this.nodesVirus.slice();
+                virusSnapshot.forEach(virus => {
+                    if (virus.isRemoved) return; // guard: already removed this tick
+                    if (this.ticks >= virus.createdAt + this.config.virusLifeTime * 25)
+                        this.removeNode(virus);
                 });
             }
             // Remove expired growth pellets
+            // FIX: same snapshot + isRemoved guard as above. Without the snapshot,
+            // forEach skips elements after splice(); without the isRemoved guard,
+            // a pellet eaten in the same tick (quadItem=null) causes
+            // quadTree.remove(null) to throw, killing the WebSocket process (1006).
             if (this.config.growthPelletLifeTime) {
-                this.nodesGrowthPellets.forEach(pellet => {
-                    if (this.ticks >= pellet.createdAt + this.config.growthPelletLifeTime * 25) this.removeNode(pellet);
+                var pelletSnapshot = this.nodesGrowthPellets.slice();
+                pelletSnapshot.forEach(pellet => {
+                    if (pellet.isRemoved) return; // guard: already eaten this tick
+                    if (this.ticks >= pellet.createdAt + this.config.growthPelletLifeTime * 25)
+                        this.removeNode(pellet);
                 });
             }
             this.mode.onTick(this);

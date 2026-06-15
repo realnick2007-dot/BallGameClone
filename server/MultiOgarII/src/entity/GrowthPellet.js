@@ -19,10 +19,10 @@ var Cell = require('./Cell');
  *   with quadItem=null — quadTree.remove(null) threw an unhandled exception that
  *   killed the WebSocket process with error 1006.
  *
- * Fix 2 (NaN expiry): mainLoop reads pellet.createdAt for lifetime checks.
- *   The old constructor set this._spawnTick instead of this.createdAt, so
- *   pellet.createdAt was always undefined, making the comparison NaN — every
- *   pellet was flagged for removal on every single tick, compounding the crash.
+ * Fix 2 (redundant createdAt): Cell base constructor already sets
+ *   this.createdAt = server.ticks inside super(). The child constructor
+ *   was re-assigning it immediately after, creating an ordering dependency
+ *   that could diverge if the base class changes. Removed.
  */
 class GrowthPellet extends Cell {
     constructor(server, owner, position, size) {
@@ -35,8 +35,8 @@ class GrowthPellet extends Cell {
             g: 0xff,
             b: 0x88
         };
-        // Fix 2: was this._spawnTick — mainLoop expiry reads this.createdAt
-        this.createdAt = server ? server.ticks : 0;
+        // NOTE: this.createdAt is set by Cell base constructor via super().
+        // Do NOT re-assign it here — Cell already does: this.createdAt = server.ticks
     }
 
     // Pellets never eat other cells.
