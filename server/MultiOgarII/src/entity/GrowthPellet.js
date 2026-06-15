@@ -14,10 +14,11 @@ var Cell = require('./Cell');
  *
  * Eat flow (called by Server.resolveCollision):
  *   check.onEat(cell)   — check=eater (PlayerCell), cell=pellet (this).
- *                         The pellet's onEat is NOT called here — only the
- *                         eater's.  So we do NOT override onEat.
- *   cell.onEaten(check) — called on the pellet (this).  This is where we
- *                         apply the full mass boost to the eater.
+ *                         The base Cell.onEat grows the eater by sqrt(eaterR + pelletR).
+ *                         We must NOT double-count that gain in onEaten.
+ *   cell.onEaten(check) — called on the pellet (this) after onEat.
+ *                         We apply the mass boost on top of the eater's
+ *                         already-updated size from onEat.
  */
 class GrowthPellet extends Cell {
     constructor(server, owner, position, size) {
@@ -45,14 +46,17 @@ class GrowthPellet extends Cell {
      * Called on the pellet (this) by resolveCollision after the eater's onEat.
      * `eater` is the PlayerCell that consumed us.
      *
-     * We capture eater._size HERE (post standard onEat) and apply the full
-     * mass boost on top of it.
+     * BUG 3 FIX: base Cell.onEat already called setSize(sqrt(eaterRadius + pelletRadius))
+     * on the eater, so eater._size already includes the normal eat gain.
+     * We apply the mass boost on top of that current size — do NOT re-read a
+     * pre-eat snapshot, just add extra size on top of whatever onEat left.
      */
     onEaten(eater) {
         var boost = this.server.config.growthPelletMassBoost || 500;
         // Convert mass boost to size: size = sqrt(mass * 100)
         var extraSize = Math.sqrt(boost * 100);
         var cap = this.server.config.playerMaxSize || 3162;
+        // eater._size is already the post-onEat size; add the bonus on top cleanly.
         eater.setSize(Math.min(eater._size + extraSize, cap));
     }
 

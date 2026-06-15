@@ -143,6 +143,9 @@ class PlayerTracker {
         this.spectate = false;
         this.freeRoam = false;
         this.spectateTarget = null;
+        // BUG 2 FIX: reset growth cooldown on each spawn so a stale tick value
+        // from a previous life never permanently blocks the powerup.
+        this.lastUsedGrowth = 0;
         var packetHandler = this.socket.packetHandler;
         if (!this.isMi && this.socket.isConnected != null) {
             // some old clients don't understand ClearAll message
