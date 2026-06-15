@@ -57,6 +57,45 @@ class Server {
         this.setBorder(this.config.borderWidth, this.config.borderHeight);
         this.quadTree = new QuadNode(this.border);
     }
+
+    // -------------------------------------------------------------------------
+    // Recombine / grace / bloom helpers — single source of truth
+    // All grace, bloom, and merge-eligibility checks in the server use these.
+    // Override via config.splitGraceTime and config.splitBloomTime.
+    // -------------------------------------------------------------------------
+
+    /** Ticks a freshly-split cell phases through teammates before rigid collision kicks in. */
+    getSplitGraceTime() {
+        if (this.config.splitGraceTime !== undefined) return this.config.splitGraceTime;
+        return this.config.mobilePhysics ? 1 : 13;
+    }
+
+    /** Ticks after grace ends over which the rigid push force cubic-ramps to full (~0.5s at 40ms/tick). */
+    getSplitBloomTime() {
+        return this.config.splitBloomTime !== undefined ? this.config.splitBloomTime : 13;
+    }
+
+    /** True while a cell is still inside its post-split grace window. */
+    isInSplitGrace(cell) {
+        return cell.getAge() < this.getSplitGraceTime();
+    }
+
+    /**
+     * True when two same-owner cells are allowed to merge.
+     * Centralises every merge-eligibility condition in one place:
+     *   - mergeOverride (recombine powerup) always allows merging
+     *   - either cell still in grace period blocks merging
+     *   - both cells must have _canRemerge set by movePlayer()
+     */
+    canOwnedCellsMerge(a, b) {
+        if (!a || !b || !a.owner || a.owner !== b.owner) return false;
+        if (a.owner.mergeOverride) return true;
+        if (this.isInSplitGrace(a) || this.isInSplitGrace(b)) return false;
+        return a._canRemerge && b._canRemerge;
+    }
+
+    // -------------------------------------------------------------------------
+
     start() {
         this.timerLoopBind = this.timerLoop.bind(this);
         this.mainLoopBind = this.mainLoop.bind(this);
@@ -581,7 +620,7 @@ class Server {
                 }
             }
 
-            // Remerge flag: cells can merge once they are old enough
+            // mergeOverride cells can always remerge
             cell._canRemerge = true;
             return;
         }
@@ -613,7 +652,7 @@ class Server {
         } else {
             cell.speed = 0;
         }
-        // regular remerge time
+        // regular remerge: driven by config playerRecombineTime + size factor
         cell._canRemerge = cell.getAge() >= base;
     }
     // decay player cells
@@ -689,45 +728,42 @@ class Server {
             // Minions don't collide with their team when the config value is 0
             if (this.mode.haveTeams && m.check.owner.isMi || m.cell.owner.isMi && this.config.minionCollideTeam === 0) {
                 return false;
-            }
-            else {
-                // Different owners => same team
+            } else {
+                // Different owners => same team rigid collision
                 return this.mode.haveTeams &&
                     m.cell.owner.team == m.check.owner.team;
             }
         }
-        var grace = this.config.splitGraceTime !== undefined ? this.config.splitGraceTime : (this.config.mobilePhysics ? 1 : 13);
-        if (m.cell.getAge() < grace || m.check.getAge() < grace) {
-            return false; // fully inside grace period => phase through
+        // Same owner: use helpers — no magic numbers here
+        if (this.isInSplitGrace(m.cell) || this.isInSplitGrace(m.check)) {
+            return false; // still in grace => phase through
         }
-        return !m.cell._canRemerge || !m.check._canRemerge;
+        // Rigid if either cell can't remerge yet (canOwnedCellsMerge would return true => not rigid)
+        return !this.canOwnedCellsMerge(m.cell, m.check);
     }
-    // Resolves rigid body collisions with deferred gradual cubic bloom ramp-up
-    // Bloom window: ~0.5 seconds (13 ticks at 40ms/tick) after grace period
+    // Resolves rigid body collisions with deferred gradual cubic bloom ramp-up.
+    // Bloom window: ~0.5 seconds (13 ticks at 40ms/tick) after grace period.
     resolveRigidCollision(m) {
         if (m.d == 0) return; // coincident cells — skip to avoid division by zero
 
         var overlap = m.cell._size + m.check._size - m.d;
         if (overlap <= 0) return; // not overlapping
 
-        // Normalize push by summed radii so force stays consistent regardless of cell size.
-        // Using _size (not radius=size^2) for a physically correct mass-weighted impulse.
+        // Normalize push by summed sizes for a physically consistent, size-independent force.
         var totalSize = m.cell._size + m.check._size;
-        // push: fraction of overlap relative to total diameter — keeps force bounded [0, 0.5]
+        // push: fraction of overlap relative to total diameter — bounded [0, 0.5]
         var push = overlap / totalSize;
 
         // --- Split bloom: cubic ramp-up of push force after grace period ---
-        // Default bloom window: 13 ticks ≈ 0.5 seconds (server runs at 40ms/tick)
+        // Uses getSplitGraceTime() / getSplitBloomTime() — no hardcoded values.
         var bloomScale = 1.0;
-        var bloomTime = this.config.splitBloomTime !== undefined ? this.config.splitBloomTime : 13;
+        var bloomTime = this.getSplitBloomTime();
         if (bloomTime > 0 && m.cell.owner && m.check.owner && m.cell.owner === m.check.owner) {
-            var grace = this.config.splitGraceTime !== undefined ? this.config.splitGraceTime : (this.config.mobilePhysics ? 1 : 13);
-            var ageA = m.cell.getAge();
-            var ageB = m.check.getAge();
-            var youngestAge = Math.min(ageA, ageB);
+            var grace = this.getSplitGraceTime();
+            var youngestAge = Math.min(m.cell.getAge(), m.check.getAge());
             var bloomAge = youngestAge - grace; // ticks elapsed since grace ended
             if (bloomAge < bloomTime) {
-                // t: 0 -> 1 over the bloom window, cubic ease-in for smooth ramp
+                // t: 0 -> 1 over bloom window, cubic ease-in for smooth ramp
                 var t = Math.max(0, bloomAge / bloomTime);
                 bloomScale = t * t * t;
             }
@@ -736,7 +772,6 @@ class Server {
         // --- End bloom ---
 
         // Mass-weighted impulse: larger cell moves less, smaller cell moves more.
-        // Weight by _size so impulse ratio reflects relative cell diameter.
         var r1 = push * m.check._size / totalSize * bloomScale; // displacement for cell
         var r2 = push * m.cell._size  / totalSize * bloomScale; // displacement for check
 
@@ -744,7 +779,7 @@ class Server {
         m.cell.position.subtract(m.p.product(r1));
         m.check.position.add(m.p.product(r2));
     }
-    // Resolves non-rigid body collision
+    // Resolves non-rigid body collision (eat/merge)
     resolveCollision(m) {
         var cell = m.cell;
         var check = m.check;
@@ -760,10 +795,9 @@ class Server {
         if (m.d >= check._size - cell._size / check.div) {
             return; // too far => can't eat
         }
-        // collision owned => ignore, resolve, or remerge
+        // Same-owner collision: use canOwnedCellsMerge() — replaces hardcoded 13-tick check
         if (cell.owner && cell.owner == check.owner) {
-            if (cell.getAge() < 13 || check.getAge() < 13)
-                if (!cell.owner.mergeOverride) return; // just splited => ignore
+            if (!this.canOwnedCellsMerge(cell, check)) return; // not ready to merge
         }
         else if (check._size < cell._size * 1.15 || !check.canEat(cell))
             return; // Cannot eat or cell refuses to be eaten
@@ -773,17 +807,9 @@ class Server {
         cell.killer = check;
         // Remove cell
         this.removeNode(cell);
-        // Set mergeOverride to false once all cells have merged into one
+        // Clear mergeOverride once all cells have merged into one
         if (cell.owner && cell.owner.cells.length <= 1) {
             cell.owner.mergeOverride = false;
-            // Do NOT call setBoost after a recombine merge — that is what
-            // causes the unwanted forward lurch when cells consume each other.
-            // The boost-on-merge is only applied for normal (non-override) eats
-            // between cells of the same owner.
-            if (check.owner == cell.owner && !cell.owner.mergeOverride) {
-                // merge was triggered by natural recombine time, not by powerup —
-                // skip boost entirely to avoid any push artifact
-            }
         }
     }
     splitPlayerCell(client, parent, angle, mass) {
@@ -817,7 +843,7 @@ class Server {
         this.addNode(cell);
     }
     spawnVirus(position = this.randomPos(), forced = false) {
-        var virus = new Entity.Virus(this, null, position, this.config.virusMinSize, forced);  
+        var virus = new Entity.Virus(this, null, position, this.config.virusMinSize, forced);
         if (!this.onField(position)) return;
         if (forced || !this.willCollide(virus)) {
             this.addNode(virus);
