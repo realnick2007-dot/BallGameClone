@@ -40,15 +40,17 @@ class GrowthPellet extends Cell {
     }
 
     /**
-     * Called by resolveCollision (our dedicated branch) after the eater's
-     * base onEat has already grown the eater by sqrt(eaterR + pelletR).
-     * We apply the configured mass bonus on top of that.
+     * Called by resolveCollision (our dedicated branch) when a PlayerCell eats
+     * this pellet. Adds a flat mass bonus (growthPelletMassBoost) regardless of
+     * the eater's current size — mass = size² × 0.01, so we convert both ways.
      */
     onEaten(eater) {
         var boost = this.server.config.growthPelletMassBoost || 500;
-        var extraSize = Math.sqrt(boost * 100);
+        var currentMass = eater._size * eater._size * 0.01;
+        var newMass = currentMass + boost;
+        var newSize = Math.sqrt(newMass * 100);
         var cap = this.server.config.playerMaxSize || 3162;
-        eater.setSize(Math.min(eater._size + extraSize, cap));
+        eater.setSize(Math.min(newSize, cap));
     }
 
     onAdd(server) {
