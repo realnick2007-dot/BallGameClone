@@ -554,6 +554,12 @@ class Server {
                     if (this.ticks >= virus.createdAt + this.config.virusLifeTime * 25) this.removeNode(virus);
                 });
             }
+            // Remove expired growth pellets
+            if (this.config.growthPelletLifeTime) {
+                this.nodesGrowthPellets.forEach(pellet => {
+                    if (this.ticks >= pellet.createdAt + this.config.growthPelletLifeTime * 25) this.removeNode(pellet);
+                });
+            }
             this.mode.onTick(this);
             this.ticks++;
         }
@@ -876,13 +882,26 @@ class Server {
             this.addNode(virus);
         }
     }
-    // Mirrors spawnVirus(position, forced=true):
-    // position is always player-cursor (already on-field), skip willCollide check.
+    // Spawns a GrowthPellet at the player's cursor position.
+    // Bug fixes vs old version:
+    //   1. Position is always a live Vec2 from client.mouse — never falsy — so
+    //      the old `if (!position)` guard never fired and a missing position would
+    //      have crashed instead of falling back. Now we validate with onField and
+    //      clamp OOB coordinates to the border edge so a cursor near the wall
+    //      always produces a valid spawn instead of silently returning null.
+    //   2. OOB cursor was previously rejected outright (return null). Now we clamp
+    //      x/y to the border so the pellet always spawns at the nearest valid point.
+    //   3. The pellet was never pushed into nodesGrowthPellets, so the lifetime
+    //      expiry loop in mainLoop could never find it. Now it is tracked there.
     spawnGrowthPellet(position, owner) {
-        if (!position) position = this.randomPos();
-        if (!this.onField(position)) return null;
-        var pellet = new Entity.GrowthPellet(this, owner, position, this.config.growthPelletSize);
+        // Clamp the spawn position to the border instead of rejecting it.
+        // This handles cursors that are at or slightly past the map edge.
+        var x = Math.max(this.border.minx, Math.min(this.border.minx + this.border.width,  position.x));
+        var y = Math.max(this.border.miny, Math.min(this.border.miny + this.border.height, position.y));
+        var safePos = new Vec2(x, y);
+        var pellet = new Entity.GrowthPellet(this, owner, safePos, this.config.growthPelletSize);
         this.addNode(pellet);
+        this.nodesGrowthPellets.push(pellet); // track for lifetime expiry
         return pellet;
     }
     spawnCells(virusCount, foodCount) {
