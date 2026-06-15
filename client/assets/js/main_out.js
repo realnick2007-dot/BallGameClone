@@ -152,6 +152,9 @@
                 case 27: // esc
                     showOverlays(true);
                     break;
+                // NOTE: key 51 ("3") is handled by inventory.js so the
+                // cooldown ring and flash are managed there.  No duplicate
+                // handler needed here.
             }
         };
         wHandle.onkeyup = function(event) {
@@ -775,11 +778,17 @@
             posY = c;
             posSize = viewZoom;
             nodeX = (nodeX + a) / 2;
-            nodeY = (nodeY + c) / 2
+            nodeY = (nodeY + c) / 2;
+
+            // Show inventory when player is alive
+            if (typeof inventoryShow === 'function') inventoryShow();
         } else {
             nodeX = (29 * nodeX + posX) / 30;
             nodeY = (29 * nodeY + posY) / 30;
             viewZoom = (9 * viewZoom + posSize * viewRange()) / 10;
+
+            // Hide inventory when dead / spectating
+            if (typeof inventoryHide === 'function') inventoryHide();
         }
         buildQTree();
         mouseCoordinateChange();
@@ -829,7 +838,7 @@
         }
         ctx.restore();
         lbCanvas && lbCanvas.width && ctx.drawImage(lbCanvas, canvasWidth - lbCanvas.width - 10, 10); // draw Leader Board
-        if (chatCanvas != null) ctx.drawImage(chatCanvas, 0, canvasHeight - chatCanvas.height - 50); // draw Leader Board
+        if (chatCanvas != null) ctx.drawImage(chatCanvas, 0, canvasHeight - chatCanvas.height - 50); // draw Chat
 
         userScore = Math.max(userScore, calcUserScore());
         if (0 != userScore) {
@@ -841,14 +850,16 @@
             a = c.width;
             ctx.globalAlpha = .2;
             ctx.fillStyle = '#000000';
-            ctx.fillRect(10, 10, a + 10, 34); //canvasHeight - 10 - 24 - 10
+            ctx.fillRect(10, 10, a + 10, 34);
             ctx.globalAlpha = 1;
-            ctx.drawImage(c, 15, 15); //canvasHeight - 10 - 24 - 5
+            ctx.drawImage(c, 15, 15);
         }
         drawSplitIcon(ctx);
-
         drawTouch(ctx);
-        //drawChatBoard();
+
+        // Tick inventory cooldown rings
+        if (typeof inventoryTick === 'function') inventoryTick();
+
         var deltatime = Date.now() - oldtime;
         deltatime > 1E3 / 60 ? z -= .01 : deltatime < 1E3 / 65 && (z += .01);
         .4 > z && (z = .4);
