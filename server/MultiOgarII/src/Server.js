@@ -893,17 +893,14 @@ class Server {
     //      x/y to the border so the pellet always spawns at the nearest valid point.
     //   3. The pellet was never pushed into nodesGrowthPellets, so the lifetime
     //      expiry loop in mainLoop could never find it. Now it is tracked there.
-    spawnGrowthPellet(position, owner) {
-        // Clamp the spawn position to the border instead of rejecting it.
-        // This handles cursors that are at or slightly past the map edge.
-        var x = Math.max(this.border.minx, Math.min(this.border.minx + this.border.width,  position.x));
-        var y = Math.max(this.border.miny, Math.min(this.border.miny + this.border.height, position.y));
-        var safePos = new Vec2(x, y);
-        var pellet = new Entity.GrowthPellet(this, owner, safePos, this.config.growthPelletSize);
-        this.addNode(pellet);
-        this.nodesGrowthPellets.push(pellet); // track for lifetime expiry
-        return pellet;
-    }
+spawnGrowthPellet(position, owner) {
+    var x = Math.max(this.border.minx, Math.min(this.border.minx + this.border.width,  position.x));
+    var y = Math.max(this.border.miny, Math.min(this.border.miny + this.border.height, position.y));
+    var safePos = new Vec2(x, y);
+    var pellet = new Entity.GrowthPellet(this, owner, safePos, this.config.growthPelletSize);
+    this.addNode(pellet); // onAdd() handles the nodesGrowthPellets push — don't push again
+    return pellet;
+}
     spawnCells(virusCount, foodCount) {
         for (var i = 0; i < foodCount; i++) {
             this.spawnFood();
