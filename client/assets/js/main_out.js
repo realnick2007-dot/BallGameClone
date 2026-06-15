@@ -92,6 +92,12 @@
                         spacePressed = true;
                     }
                     break;
+		case 51: // 3 — Growth powerup
+  		  if (!isTyping) {
+  		      sendMouseMove();
+   		     sendUint8(28);
+ 		   }
+ 		   break;
                 case 87: // W
                     if ((!wPressed) && (!isTyping)) {
                         sendMouseMove();
