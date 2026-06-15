@@ -186,8 +186,8 @@ module.exports = Object.seal({
 "playerMaxNickLength": 15,
 "playerDisconnectTime": -1,
 "splitVelocity": 1024,
-"splitGraceTime": 13,
-"splitBloomTime": 26,
+"splitGraceTime": 5,
+"splitBloomTime": 9,
 
 // [MINIONS]
 // Custom minion settings
