@@ -11,6 +11,15 @@ var Cell = require('./Cell');
  *     (if configured).  No respawn — it is spawned on-demand.
  *   - Rendered as a bright lime-green circle (type 1 = food, distinct colour)
  *     so vanilla clients show it without any client-side changes.
+ *
+ * Eat flow (called by Server.resolveCollision):
+ *   1. check.onEat(cell)  — the standard Cell.onEat grows the eater by the
+ *      combined-radius formula.  We override this on GrowthPellet so we can
+ *      capture the eater's pre-eat size BEFORE the standard formula fires,
+ *      then apply the full mass boost on top.
+ *   2. cell.onEaten(check) — called on the pellet (this).  Applies the boost
+ *      using the pre-captured size so the result is deterministic regardless
+ *      of what onEat did.
  */
 class GrowthPellet extends Cell {
     constructor(server, owner, position, size) {
@@ -25,6 +34,8 @@ class GrowthPellet extends Cell {
             b: 0x88
         };
         this._spawnTick = server ? server.ticks : 0;
+        // Will be set by onEat() so onEaten() can use the pre-eat size.
+        this._eaterSizeBeforeEat = 0;
     }
 
     // ── Eat rules ────────────────────────────────────────────────────────────
@@ -35,15 +46,37 @@ class GrowthPellet extends Cell {
     }
 
     /**
-     * Called on the pellet (this) when a player cell eats it.
-     * `eater` is the player cell doing the eating — apply the boost there.
+     * Override onEat so we can capture the eater's size BEFORE the standard
+     * combined-radius growth formula runs.  We still call super so the node is
+     * properly consumed (radius bookkeeping), but the real size change happens
+     * inside onEaten() using the pre-captured value.
+     *
+     * `this` = pellet (prey),  `eater` = the PlayerCell eating us.
+     * NOTE: resolveCollision calls  check.onEat(cell)  where check is the
+     * larger cell (eater) and cell is the smaller one (pellet = this).
+     * So here `this` is the pellet and the argument is the eater.
+     */
+    onEat(eater) {
+        // Capture eater size before ANY modification.
+        this._eaterSizeBeforeEat = eater._size;
+        // Do NOT call super — we handle sizing entirely in onEaten.
+        // (Calling super would do setSize(sqrt(eaterRadius + pelletRadius))
+        //  which would then be overwritten by onEaten anyway, so skip it.)
+    }
+
+    /**
+     * Called on the pellet (this) after the eater's onEat runs.
+     * `eater` is the PlayerCell that consumed us.
+     * Apply the full mass boost starting from the pre-eat size.
      */
     onEaten(eater) {
         var boost = this.server.config.growthPelletMassBoost || 500;
-        // Convert mass boost to size: size = sqrt(mass * 100)
+        // Convert mass boost to size delta: size = sqrt(mass * 100)
         var extraSize = Math.sqrt(boost * 100);
         var cap = this.server.config.playerMaxSize || 3162;
-        eater.setSize(Math.min(eater._size + extraSize, cap));
+        // Use pre-captured size so result doesn't depend on what onEat did.
+        var baseSize = this._eaterSizeBeforeEat || eater._size;
+        eater.setSize(Math.min(baseSize + extraSize, cap));
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
