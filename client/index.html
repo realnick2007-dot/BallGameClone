@@ -21,7 +21,7 @@
     <script src="https://code.jquery.com/jquery-1.11.3.min.js"></script>
     <script src="assets/js/log.js"></script>
     <script src="assets/js/vector.js"></script>
-    <script src="assets/js/main_out.js?v=1"></script> 
+    <script src="assets/js/main_out.js?v=2"></script> 
 </head>
 
 <body>
@@ -106,6 +106,7 @@
                         Press <b>W</b> to eject some mass<br/>
                         Press <b>E</b> to recombine<br/>
                         Press <b>X</b> to spawn a virus<br/>
+                        Press <b>3</b> to use Growth powerup<br/>
                     </span>
                 </center>
             </div>
@@ -127,6 +128,14 @@
 
     <canvas id="canvas" width="800" height="600"></canvas>
     <input type="text" id="chat_textbox" placeholder="Press enter to chat!" maxlength="200" />
+
+    <!-- Physical inventory HUD -->
+    <div id="inventory">
+        <!-- Slots are injected by inventory.js logic in main_out.js -->
+    </div>
+    <!-- Drag ghost element -->
+    <div id="inv-drag-ghost"></div>
+
     <div style="font-family:'Ubuntu'">&nbsp;</div>
 
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/js/bootstrap.min.js"></script>
