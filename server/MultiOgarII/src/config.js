@@ -95,6 +95,7 @@ module.exports = Object.seal({
 "powerupRecombine": true,
 "powerupRecombineDelay": 0,
 "powerupRecombineEvery": false,
+"recombineBoostSpeed": 75,
 "powerupVirus": true,
 "powerupVirusDelay": 0.1,
 "powerupVirusEvery": true,
