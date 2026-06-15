@@ -571,16 +571,16 @@ class Server {
     }
     // Move a player cell each tick.
     // Recombine powerup behaviour:
-    //   - The "anchor" cell is the one closest to the mouse cursor — it moves at
-    //     normal speed so the player feels in control of where the merge lands.
-    //   - All other cells get a flat bonus added on top of their normal speed so
-    //     they rush toward the anchor position.
-    //   - The anchor changes every tick as the cursor moves (fluid locking).
+    //   - The "anchor" cell is the one closest to the mouse cursor — it moves
+    //     toward the mouse at normal speed so the player steers where they merge.
+    //   - Every other cell moves toward the anchor at (normal speed + bonus),
+    //     expressed in world units per tick so the rush is visible at any distance.
+    //   - config.recombineBoostSpeed controls the bonus (default 150 world units/tick).
     movePlayer(cell, client) {
         if (client.socket.isConnected == false || client.frozen || !client.mouse)
             return; // Do not move
 
-        // --- Recombine powerup: anchor-cell movement ---
+        // --- Recombine powerup: rush all non-anchor cells toward the anchor ---
         if (client.mergeOverride && client.cells.length > 1) {
             // Find the cell closest to the mouse cursor each tick (fluid anchor)
             var anchorCell = null;
@@ -593,34 +593,36 @@ class Server {
                 }
             }
 
-            // Flat bonus speed added to non-anchor cells (configurable, default 2x base)
-            var recombineBonus = this.config.recombineBoostSpeed !== undefined
+            // World-unit bonus speed added on top of normal speed for non-anchor cells.
+            // Default 150 world units/tick gives a noticeable rush without being instant.
+            var bonusSpeed = this.config.recombineBoostSpeed !== undefined
                 ? this.config.recombineBoostSpeed
-                : 2;
+                : 150;
 
             if (cell === anchorCell) {
-                // Anchor: move toward mouse at normal speed only
+                // Anchor: normal movement toward mouse cursor
                 var d = client.mouse.difference(cell.position);
-                var move = cell.getSpeed(d.dist());
+                var dist = d.dist();
+                var move = cell.getSpeed(dist); // 0-1 normalised fraction
                 if (move) cell.position.add(d.product(move));
             } else {
-                // Non-anchor: move toward anchor position with flat speed bonus
+                // Non-anchor: rush toward anchor position in world units
                 var target = anchorCell ? anchorCell.position : client.mouse;
                 var d = target.difference(cell.position);
                 var dist = d.dist();
                 if (dist > 0) {
-                    var baseMove = cell.getSpeed(dist);
-                    // Flat bonus: add recombineBonus units of movement per tick
-                    // getSpeed already normalises by dist, so add bonus as a
-                    // normalised fraction of the direction vector
-                    var totalMove = baseMove + recombineBonus / dist;
-                    // Cap so we don't overshoot when very close
-                    totalMove = Math.min(totalMove, 1);
-                    cell.position.add(d.product(totalMove));
+                    // getSpeed() returns a 0-1 fraction (displacement / dist).
+                    // Multiply back by dist to get world-unit base speed, then add bonus.
+                    var baseWorldSpeed = cell.getSpeed(dist) * dist;
+                    var totalWorldSpeed = baseWorldSpeed + bonusSpeed;
+                    // Clamp so we never overshoot the target
+                    totalWorldSpeed = Math.min(totalWorldSpeed, dist);
+                    // Apply as a unit-direction * world-unit magnitude
+                    cell.position.add(d.product(totalWorldSpeed / dist));
                 }
             }
 
-            // mergeOverride cells can always remerge
+            // mergeOverride cells can always remerge — set flag for canOwnedCellsMerge()
             cell._canRemerge = true;
             return;
         }
