@@ -21,8 +21,7 @@
     <script src="https://code.jquery.com/jquery-1.11.3.min.js"></script>
     <script src="assets/js/log.js"></script>
     <script src="assets/js/vector.js"></script>
-    <script src="assets/js/main_out.js?v=2"></script>
-    <script src="assets/js/inventory.js?v=1"></script>
+    <script src="assets/js/main_out.js?v=3"></script>
 </head>
 
 <body>
@@ -89,11 +88,11 @@
                         <label>
                             <input type="checkbox" class="save" data-box-id="5" onchange="setColors($(this).is(':checked'));"> No colors</label>
                         <label>
-                            <input type="checkbox" class="save" data-box-id="6" onchange="setShowMass($(this).is(':checked'));"> Show mass</label>
+                            <input type="checkbox" class="save" data-box-id="6" onchange="setShowMass($(this).is(':checked));"> Show mass</label>
                         <label>
-                            <input type="checkbox" class="save" data-box-id="7" onchange="setSmooth($(this).is(':checked'));"> Smooth Render</label>
+                            <input type="checkbox" class="save" data-box-id="7" onchange="setSmooth($(this).is(':checked));"> Smooth Render</label>
                         <label>
-                            <input type="checkbox" class="save" data-box-id="8" onchange="setChatHide($(this).is(':checked'));"> Hide Chat</label>
+                            <input type="checkbox" class="save" data-box-id="8" onchange="setChatHide($(this).is(':checked));"> Hide Chat</label>
                     </div>
                 </div>
             </form>
@@ -130,10 +129,13 @@
     <canvas id="canvas" width="800" height="600"></canvas>
     <input type="text" id="chat_textbox" placeholder="Press enter to chat!" maxlength="200" />
 
-    <!-- Physical inventory HUD — slots built by inventory.js -->
-    <div id="inventory"></div>
-    <!-- Drag ghost -->
-    <div id="inv-drag-ghost"></div>
+    <div id="inventory">
+        <div class="inv-slot" id="inv-slot-growth" title="Growth (press 3)">
+            <span class="slot-key">3</span>
+            <span class="slot-icon">🌱</span>
+            <span class="slot-label">Growth</span>
+        </div>
+    </div>
 
     <div style="font-family:'Ubuntu'">&nbsp;</div>
 
