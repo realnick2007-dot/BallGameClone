@@ -804,13 +804,20 @@ class Server {
     resolveCollision(m) {
         var cell = m.cell;
         var check = m.check;
+
+        // FIX: isRemoved guard MUST come before the growth-pellet branches.
+        // A pellet queued multiple times in eatCollisions (two player cells
+        // overlapping it, or spam-spawning pellets stacked on each other) would
+        // previously reach removeNode() a second time after quadItem was already
+        // set to null, causing quadTree.remove(null) to throw and kill the
+        // WebSocket process with a 1006 error.
+        if (cell.isRemoved || check.isRemoved)
+            return;
+
         if (cell._size > check._size) {
             cell = m.check;
             check = m.cell;
         }
-        // Do not resolve removed
-        if (cell.isRemoved || check.isRemoved)
-            return;
 
         // --- Growth pellet (type 5): any PlayerCell eats it unconditionally ---
         // Mirrors the forced=true path used by spawnVirus: no size ratio required,
