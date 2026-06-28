@@ -23,6 +23,21 @@ var Cell = require('./Cell');
  *   this.createdAt = server.ticks inside super(). The child constructor
  *   was re-assigning it immediately after, creating an ordering dependency
  *   that could diverge if the base class changes. Removed.
+ *
+ * Fix 3 (NaN size / stacked pellet crash): when multiple pellets are stacked on
+ *   top of each other and eaten in the same tick, onEaten() fires multiple times
+ *   on the same eater cell within one eatCollisions pass. Each call boosts mass
+ *   and calls setSize(). If the accumulated size reaches or exceeds playerMaxSize,
+ *   autoSplit() fires on the same cell during the nodesPlayer.forEach pass and
+ *   computes size1 = sqrt(parent.radius - splitSize^2). When the parent was
+ *   capped at exactly playerMaxSize and split mass exceeds parent radius due to
+ *   floating-point rounding, size1 = sqrt(negative) = NaN. A NaN size
+ *   propagates into quadTree bounds, corrupting the tree and causing
+ *   quadTree.remove/insert to throw — killing the WebSocket process (1006).
+ *
+ *   Fix: cap newMass in onEaten so the resulting size stays strictly BELOW
+ *   playerMaxSize (leaving room for autoSplit to do clean math), and skip the
+ *   boost entirely if the eater is already at or above the cap.
  */
 class GrowthPellet extends Cell {
     constructor(server, owner, position, size) {
@@ -46,16 +61,33 @@ class GrowthPellet extends Cell {
 
     /**
      * Called by resolveCollision (our dedicated branch) when a PlayerCell eats
-     * this pellet. Adds a flat mass bonus (growthPelletMassBoost) regardless of
-     * the eater's current size — mass = size² × 0.01, so we convert both ways.
+     * this pellet. Adds a flat mass bonus (growthPelletMassBoost) to the eater.
+     *
+     * FIX 3: cap newMass so the resulting size stays strictly below playerMaxSize.
+     * This prevents autoSplit from receiving a NaN size when multiple stacked
+     * pellets are eaten in the same tick and the eater is boosted past the cap.
      */
     onEaten(eater) {
         var boost = this.server.config.growthPelletMassBoost || 500;
+        var cap = this.server.config.playerMaxSize || 3162;
+
+        // Convert current size to mass, apply boost, convert back to size.
         var currentMass = eater._size * eater._size * 0.01;
         var newMass = currentMass + boost;
         var newSize = Math.sqrt(newMass * 100);
-        var cap = this.server.config.playerMaxSize || 3162;
-        eater.setSize(Math.min(newSize, cap));
+
+        // Clamp to strictly less than playerMaxSize so autoSplit always has
+        // clean positive radicand: size1 = sqrt(parent.radius - splitSize^2).
+        // Using (cap - 1) gives a 1-unit gap that is invisible in gameplay but
+        // prevents the floating-point underflow that produces NaN.
+        var hardCap = cap - 1;
+        if (newSize > hardCap) newSize = hardCap;
+
+        // Skip the setSize call entirely if the eater is already at or above
+        // the hard cap — no point clamping to a value they already exceed.
+        if (eater._size >= hardCap) return;
+
+        eater.setSize(newSize);
     }
 
     // Fix 1: onAdd() is the ONLY place this pellet is pushed into nodesGrowthPellets.
