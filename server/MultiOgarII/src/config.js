@@ -92,12 +92,20 @@ module.exports = Object.seal({
 // powerupRecombineDelay: limit in seconds of using recombine powerup
 // powerupRecombineEvery: include failed tries of using recombine when counting limit (helps preventing multidropping in case of viruses)
 // powerupVirus*: the same as with recombine powerup
-// powerupGrowth: enable growth pellet powerup (key 3 — spawns a physical GrowthPellet entity at cursor)
-// powerupGrowthDelay: seconds between each growth pellet spawn (0 = no cooldown)
+// powerupGrowth: enable growth pellet powerup (key bound to opcode 28 — spawns a physical GrowthPellet entity at cursor)
+// powerupGrowthDelay: seconds between each growth pellet spawn.
+//   IMPORTANT: do NOT set this to 0. A zero delay means canUseGrowth() is always
+//   true, allowing the player to spawn a pellet every tick (25/sec). This floods
+//   the eatCollisions queue with stacked pellets, causing quadTree.remove(null)
+//   to throw and kill the WebSocket process with a 1006 error.
+//   Minimum safe value mirrors powerupVirusDelay (0.1). Default: 0.5s.
 // powerupGrowthEvery: count failed spawn attempts toward the delay timer
 // growthPelletSize: radius of the spawned pellet (clients see it as a large food dot)
 // growthPelletMassBoost: mass added to the eating cell when the pellet is consumed
 // growthPelletLifeTime: seconds before the pellet auto-expires (0 = never expires)
+// growthPelletMaxAmount: maximum number of live pellets a single player can have at once.
+//   Mirrors virusMaxAmount for viruses. Prevents stacking via rapid-fire even if
+//   powerupGrowthDelay is later lowered. Recommended: 3.
 "powerupRecombine": true,
 "powerupRecombineDelay": 0,
 "powerupRecombineEvery": false,
@@ -106,11 +114,12 @@ module.exports = Object.seal({
 "powerupVirusDelay": 0.1,
 "powerupVirusEvery": true,
 "powerupGrowth": true,
-"powerupGrowthDelay": 0,
+"powerupGrowthDelay": 0.5,
 "powerupGrowthEvery": false,
 "growthPelletSize": 80,
 "growthPelletMassBoost": 500,
 "growthPelletLifeTime": 10,
+"growthPelletMaxAmount": 3,
 
 // [BORDER]
 // Border size (vanilla 14142.135623730952)

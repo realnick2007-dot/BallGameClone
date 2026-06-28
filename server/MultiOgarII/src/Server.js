@@ -819,6 +819,16 @@ class Server {
             check = m.cell;
         }
 
+        // FIX: second isRemoved guard after the size-swap.
+        // The swap reassigns the local `cell` and `check` variables. If the node
+        // that is now in `cell` or `check` was removed by a prior iteration of
+        // eatCollisions in the same tick (e.g. two player cells both overlapping
+        // the same pellet), the first guard above only checked the pre-swap
+        // originals. This second check catches the swapped references, ensuring
+        // we never call removeNode() on a node with quadItem=null.
+        if (cell.isRemoved || check.isRemoved)
+            return;
+
         // --- Growth pellet (type 5): any PlayerCell eats it unconditionally ---
         // Mirrors the forced=true path used by spawnVirus: no size ratio required,
         // no canEat() gating. The pellet just needs to be overlapped by a player cell.
@@ -902,17 +912,26 @@ class Server {
         }
     }
     // Spawns a GrowthPellet at the player's cursor position.
-    // Bug fixes vs old version:
-    //   1. Position is always a live Vec2 from client.mouse — never falsy — so
-    //      the old `if (!position)` guard never fired and a missing position would
-    //      have crashed instead of falling back. Now we validate with onField and
-    //      clamp OOB coordinates to the border edge so a cursor near the wall
-    //      always produces a valid spawn instead of silently returning null.
-    //   2. OOB cursor was previously rejected outright (return null). Now we clamp
-    //      x/y to the border so the pellet always spawns at the nearest valid point.
-    //   3. The pellet was never pushed into nodesGrowthPellets, so the lifetime
-    //      expiry loop in mainLoop could never find it. Now it is tracked there.
+    //
+    // Safety rules mirrored from spawnVirus:
+    //   1. Position is clamped to the border edge (OOB cursor always produces a
+    //      valid spawn instead of silently returning null).
+    //   2. addNode() is the ONLY place the pellet enters the quad-tree and
+    //      nodesGrowthPellets — onAdd() handles the array push. Do NOT push again
+    //      here (was the original double-push / 1006 crash source).
+    //   3. Per-player node cap (growthPelletMaxAmount, default 3) mirrors
+    //      virusMaxAmount: prevents stacking even if the delay is later lowered.
+    //      Counts only live (non-removed) pellets owned by this player.
 spawnGrowthPellet(position, owner) {
+    // Per-player live-pellet cap — mirrors virusMaxAmount for viruses.
+    var cap = this.config.growthPelletMaxAmount || 3;
+    var liveCount = 0;
+    for (var i = 0; i < this.nodesGrowthPellets.length; i++) {
+        var p = this.nodesGrowthPellets[i];
+        if (!p.isRemoved && p.spawner === owner) liveCount++;
+    }
+    if (liveCount >= cap) return null;
+
     var x = Math.max(this.border.minx, Math.min(this.border.minx + this.border.width,  position.x));
     var y = Math.max(this.border.miny, Math.min(this.border.miny + this.border.height, position.y));
     var safePos = new Vec2(x, y);
