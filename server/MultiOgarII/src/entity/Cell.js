@@ -17,6 +17,10 @@ class Cell {
         this.boostDirection = new Vec2(0, 0);
         this._boostDistance = 0;
         this._boostDirection = new Vec2(0, 0);
+        // Wave physics: persistent velocity vector that carries momentum tick-to-tick.
+        // Used by movePlayer() and resolveRigidCollision() to propagate push waves
+        // through chains of player cells (Newton's cradle / Cellcraft-style behaviour).
+        this.vel = new Vec2(0, 0);
 
         if (this.server) {
             this.createdAt = this.server.ticks;
@@ -76,11 +80,15 @@ class Cell {
         const r = this._size / 2;
         if (this.position.x < b.minx + r || this.position.x > b.maxx - r) {
             this.boostDirection.x *= -1; // Reflect left-right
+            // Also kill the wave velocity component in that axis on border hit
+            if (this.vel) this.vel.x *= -0.3;
             this.position.x = Math.max(this.position.x, b.minx + r);
             this.position.x = Math.min(this.position.x, b.maxx - r);
         }
         if (this.position.y < b.miny + r || this.position.y > b.maxy - r) {
             this.boostDirection.y *= -1; // Reflect off of top and bottom, borders
+            // Also kill the wave velocity component in that axis on border hit
+            if (this.vel) this.vel.y *= -0.3;
             this.position.y = Math.max(this.position.y, b.miny + r);
             this.position.y = Math.min(this.position.y, b.maxy - r);
         }
