@@ -141,7 +141,14 @@ class PacketHandler {
         this.server.spawnVirus(this.socket.playerTracker.mouse, true);
         this.socket.playerTracker.lastUsedVirus = this.server.ticks;
     }
-    // Growth pellet powerup — spawns a GrowthPellet at the player's cursor
+    /**
+     * Growth pellet powerup — spawns a GrowthPellet at the player's cursor.
+     *
+     * Fix (Step 5): enforce growthPelletMaxAmount per-player BEFORE spawning.
+     * This mirrors the virusMaxAmount check and prevents stacking via rapid-fire
+     * even if powerupGrowthDelay is later misconfigured. Silently blocks without
+     * burning the cooldown — consistent with how virusMaxAmount is handled.
+     */
     message_onKey3(message) {
         var client = this.socket.playerTracker;
         if (!this.server.config.powerupGrowth || client.spectate || client.cells.length === 0) return;
@@ -149,6 +156,11 @@ class PacketHandler {
             if (this.server.config.powerupGrowthEvery) client.lastUsedGrowth = this.server.ticks;
             return;
         }
+        // Enforce max live pellets per player (mirrors virusMaxAmount pattern).
+        var max  = this.server.config.growthPelletMaxAmount || 3;
+        var live = this.server.nodesGrowthPellets.filter(function(p) { return p.spawner === client; }).length;
+        if (live >= max) return;  // silently block — do not burn cooldown
+
         var pellet = this.server.spawnGrowthPellet(client.mouse, client);
         if (pellet) client.lastUsedGrowth = this.server.ticks;
     }
