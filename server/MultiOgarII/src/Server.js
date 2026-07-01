@@ -589,7 +589,14 @@ class Server {
         this.updateTime = tEnd[0] * 1e3 + tEnd[1] / 1e6;
     }
     // Move a player cell each tick.
-    // Recombine powerup behaviour:
+    // WAVE PHYSICS: each tick the mouse-driven displacement is blended into a
+    // persistent velocity vector (cell.vel) rather than directly teleporting the
+    // cell. The velocity decays via cellFriction each tick, so cells coast and
+    // carry momentum. resolveRigidCollision() then transfers that momentum to
+    // neighbouring cells via an impulse, producing the Newton's-cradle wave push
+    // seen on Cellcraft.io.
+    //
+    // Recombine powerup behaviour (unchanged):
     //   - The "anchor" cell is the one closest to the mouse cursor — it moves
     //     toward the mouse at normal speed so the player steers where they merge.
     //   - Every other cell moves toward the anchor at (normal speed + bonus),
@@ -630,13 +637,9 @@ class Server {
                 var d = target.difference(cell.position);
                 var dist = d.dist();
                 if (dist > 0) {
-                    // getSpeed() returns a 0-1 fraction (displacement / dist).
-                    // Multiply back by dist to get world-unit base speed, then add bonus.
                     var baseWorldSpeed = cell.getSpeed(dist) * dist;
                     var totalWorldSpeed = baseWorldSpeed + bonusSpeed;
-                    // Clamp so we never overshoot the target
                     totalWorldSpeed = Math.min(totalWorldSpeed, dist);
-                    // Apply as a unit-direction * world-unit magnitude
                     cell.position.add(d.product(totalWorldSpeed / dist));
                 }
             }
@@ -647,21 +650,52 @@ class Server {
         }
         // --- End recombine ---
 
-        // get movement from vector
+        // get movement vector toward mouse
         var d = client.mouse.difference(cell.position);
-        var move = cell.getSpeed(d.dist()); // movement speed
-        if (!move)
+        var dist = d.dist();
+        var move = cell.getSpeed(dist); // 0-1 normalised speed fraction
+
+        var friction = this.config.cellFriction !== undefined ? this.config.cellFriction : 0.82;
+
+        if (!move) {
+            // Cell is already at/near the mouse — decay velocity so wave dissipates
+            if (cell.vel) {
+                cell.vel.x *= friction;
+                cell.vel.y *= friction;
+            }
             return; // avoid jittering
-        cell.position.add(d.product(move));
+        }
+
+        // --- Wave physics: blend mouse-step into persistent velocity ---
+        // stepX/Y is the raw displacement the old code would have applied directly.
+        // We instead blend it into cell.vel with 50/50 smoothing * cellVelScale,
+        // then apply vel to position and decay for the next tick.
+        var velScale = this.config.cellVelScale !== undefined ? this.config.cellVelScale : 0.8;
+        var stepX = d.x * move;
+        var stepY = d.y * move;
+
+        if (cell.vel) {
+            cell.vel.x = cell.vel.x * 0.5 + stepX * velScale;
+            cell.vel.y = cell.vel.y * 0.5 + stepY * velScale;
+            cell.position.x += cell.vel.x;
+            cell.position.y += cell.vel.y;
+            cell.vel.x *= friction;
+            cell.vel.y *= friction;
+        } else {
+            // Fallback for any cell that somehow lacks vel (non-player path)
+            cell.position.add(d.product(move));
+        }
+        // --- End wave physics ---
+
         // update remerge
         var time = this.config.playerRecombineTime, base = Math.max(time, cell._size * 0.2) * 25;
         // instant merging conditions
         if (!time || client.rec || client.mergeOverride) {
             var nearest_dist = 10 ** 9, nearest_id;
             for (var _cell of client.cells) {
-                var dist = client.mouse.difference(_cell.position).dist();
-                if (dist < nearest_dist) {
-                    nearest_dist = dist;
+                var _dist = client.mouse.difference(_cell.position).dist();
+                if (_dist < nearest_dist) {
+                    nearest_dist = _dist;
                     nearest_id = _cell.nodeId;
                 }
             }
@@ -764,6 +798,12 @@ class Server {
     }
     // Resolves rigid body collisions with deferred gradual cubic bloom ramp-up.
     // Bloom window: ~0.5 seconds (13 ticks at 40ms/tick) after grace period.
+    //
+    // WAVE PHYSICS: after the position correction, transfers momentum between
+    // cells via a mass-weighted impulse along the collision normal. This causes
+    // a chain of player cells to propagate a push wave (Newton's cradle /
+    // Cellcraft-style behaviour). The impulse is scaled by bloomScale so
+    // freshly-split cells don't receive violent wave forces during the bloom ramp.
     resolveRigidCollision(m) {
         if (m.d == 0) return; // coincident cells — skip to avoid division by zero
 
@@ -776,7 +816,6 @@ class Server {
         var push = overlap / totalSize;
 
         // --- Split bloom: cubic ramp-up of push force after grace period ---
-        // Uses getSplitGraceTime() / getSplitBloomTime() — no hardcoded values.
         var bloomScale = 1.0;
         var bloomTime = this.getSplitBloomTime();
         if (bloomTime > 0 && m.cell.owner && m.check.owner && m.cell.owner === m.check.owner) {
@@ -784,11 +823,9 @@ class Server {
             var youngestAge = Math.min(m.cell.getAge(), m.check.getAge());
             var bloomAge = youngestAge - grace; // ticks elapsed since grace ended
             if (bloomAge < bloomTime) {
-                // t: 0 -> 1 over bloom window, cubic ease-in for smooth ramp
                 var t = Math.max(0, bloomAge / bloomTime);
                 bloomScale = t * t * t;
             }
-            // bloomAge >= bloomTime => bloomScale stays 1.0 (full force)
         }
         // --- End bloom ---
 
@@ -799,6 +836,37 @@ class Server {
         // Apply extrusion along collision normal (p points from cell -> check)
         m.cell.position.subtract(m.p.product(r1));
         m.check.position.add(m.p.product(r2));
+
+        // --- Wave physics: impulse-based velocity transfer ---
+        // Transfers momentum along the collision normal so a chain of cells
+        // propagates the push as a wave tick-by-tick (Newton's cradle).
+        if (m.cell.vel && m.check.vel && m.d > 0) {
+            var restitution = this.config.cellRestitution !== undefined
+                ? this.config.cellRestitution : 0.35;
+
+            // Collision normal: unit vector from cell toward check
+            var nx = m.p.x / m.d;
+            var ny = m.p.y / m.d;
+
+            // Relative velocity along the collision normal
+            var dvx    = m.check.vel.x - m.cell.vel.x;
+            var dvy    = m.check.vel.y - m.cell.vel.y;
+            var relVel = dvx * nx + dvy * ny;
+
+            // Only resolve if cells are approaching each other
+            if (relVel < 0) {
+                var massA = m.cell._size  * m.cell._size;
+                var massB = m.check._size * m.check._size;
+                // Impulse scalar (mass-weighted, scaled by bloom so fresh splits behave)
+                var j = -(1 + restitution) * relVel / (1 / massA + 1 / massB) * bloomScale;
+
+                m.cell.vel.x  -= (j / massA) * nx;
+                m.cell.vel.y  -= (j / massA) * ny;
+                m.check.vel.x += (j / massB) * nx;
+                m.check.vel.y += (j / massB) * ny;
+            }
+        }
+        // --- End wave physics ---
     }
     // Resolves non-rigid body collision (eat/merge)
     resolveCollision(m) {
@@ -806,11 +874,6 @@ class Server {
         var check = m.check;
 
         // FIX: isRemoved guard MUST come before the growth-pellet branches.
-        // A pellet queued multiple times in eatCollisions (two player cells
-        // overlapping it, or spam-spawning pellets stacked on each other) would
-        // previously reach removeNode() a second time after quadItem was already
-        // set to null, causing quadTree.remove(null) to throw and kill the
-        // WebSocket process with a 1006 error.
         if (cell.isRemoved || check.isRemoved)
             return;
 
@@ -820,18 +883,10 @@ class Server {
         }
 
         // FIX: second isRemoved guard after the size-swap.
-        // The swap reassigns the local `cell` and `check` variables. If the node
-        // that is now in `cell` or `check` was removed by a prior iteration of
-        // eatCollisions in the same tick (e.g. two player cells both overlapping
-        // the same pellet), the first guard above only checked the pre-swap
-        // originals. This second check catches the swapped references, ensuring
-        // we never call removeNode() on a node with quadItem=null.
         if (cell.isRemoved || check.isRemoved)
             return;
 
         // --- Growth pellet (type 5): any PlayerCell eats it unconditionally ---
-        // Mirrors the forced=true path used by spawnVirus: no size ratio required,
-        // no canEat() gating. The pellet just needs to be overlapped by a player cell.
         if (cell.type === 5 && check.type === 0) {
             if (m.d < check._size) {
                 check.onEat(cell);
@@ -912,18 +967,7 @@ class Server {
         }
     }
     // Spawns a GrowthPellet at the player's cursor position.
-    //
-    // Safety rules mirrored from spawnVirus:
-    //   1. Position is clamped to the border edge (OOB cursor always produces a
-    //      valid spawn instead of silently returning null).
-    //   2. addNode() is the ONLY place the pellet enters the quad-tree and
-    //      nodesGrowthPellets — onAdd() handles the array push. Do NOT push again
-    //      here (was the original double-push / 1006 crash source).
-    //   3. Per-player node cap (growthPelletMaxAmount, default 3) mirrors
-    //      virusMaxAmount: prevents stacking even if the delay is later lowered.
-    //      Counts only live (non-removed) pellets owned by this player.
 spawnGrowthPellet(position, owner) {
-    // Per-player live-pellet cap — mirrors virusMaxAmount for viruses.
     var cap = this.config.growthPelletMaxAmount || 3;
     var liveCount = 0;
     for (var i = 0; i < this.nodesGrowthPellets.length; i++) {
@@ -936,7 +980,7 @@ spawnGrowthPellet(position, owner) {
     var y = Math.max(this.border.miny, Math.min(this.border.miny + this.border.height, position.y));
     var safePos = new Vec2(x, y);
     var pellet = new Entity.GrowthPellet(this, owner, safePos, this.config.growthPelletSize);
-    this.addNode(pellet); // onAdd() handles the nodesGrowthPellets push — don't push again
+    this.addNode(pellet);
     return pellet;
 }
     spawnCells(virusCount, foodCount) {
