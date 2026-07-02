@@ -2,6 +2,12 @@
     var CONNECTION_URL = location.hash.match(/[\w\d\.]+:\d+/) ? location.hash.slice(1) : "localhost:8080", // Default Connection
         SKIN_URL = "./skins/"; // Skin Directory
 
+    // ---------------------------------------------------------------------------
+    // Known skins — add new skin filenames (without .png) here.
+    // This replaces the PHP checkdir.php call so the client works locally/offline.
+    // ---------------------------------------------------------------------------
+    var KNOWN_SKINS = ["ball"];
+
     wHandle.setserver = function(arg) {
         if (arg != CONNECTION_URL) {
             CONNECTION_URL = arg;
@@ -98,7 +104,7 @@
    		     sendUint8(28);
  		   }
  		   break;
-                case 87: // W
+                case 87: // W — begin macro eject
                     if ((!wPressed) && (!isTyping)) {
                         sendMouseMove();
                         sendUint8(21);
@@ -158,9 +164,6 @@
                 case 27: // esc
                     showOverlays(true);
                     break;
-                // NOTE: key 51 ("3") is handled by inventory.js so the
-                // cooldown ring and flash are managed there.  No duplicate
-                // handler needed here.
             }
         };
         wHandle.onkeyup = function(event) {
@@ -168,8 +171,9 @@
                 case 32: // space
                     spacePressed = false;
                     break;
-                case 87: // W
+                case 87: // W — stop macro eject
                     wPressed = false;
+                    sendUint8(29); // opcode 29 = W release, tells server to stop macro loop
                     break;
                 case 81: // Q
                     if (qPressed) {
@@ -198,6 +202,7 @@
         };
         wHandle.onblur = function() {
             sendUint8(19);
+            sendUint8(29); // also release W macro on window blur
             wPressed = spacePressed = qPressed = ePressed = rPressed = tPressed = pPressed = false
         };
 
@@ -489,7 +494,6 @@
                 if (0 == playerCells.length) {
                     nodeX = posX;
                     nodeY = posY;
-                    viewZoom = posSize;
                 }
                 break;
             case 99:
@@ -1116,13 +1120,25 @@
     wHandle.setAcid = function(arg) {
         xa = arg
     };
-    wHandle.openSkinsList = function(arg) {
-        if ($('#inPageModalTitle').text() != "Skins") {
-            $.get('include/gallery.php').then(function(data) {
-                $('#inPageModalTitle').text("Skins");
-                $('#inPageModalBody').html(data);
-            });
+
+    // ---------------------------------------------------------------------------
+    // Skin gallery — pure JS, no PHP required.
+    // Builds the modal body directly from KNOWN_SKINS so it works locally (file://)
+    // and over any static HTTP server without PHP.
+    // To add a new skin: drop the .png into client/skins/ and add the name to KNOWN_SKINS.
+    // ---------------------------------------------------------------------------
+    wHandle.openSkinsList = function() {
+        if ($('#inPageModalTitle').text() === 'Skins') return;
+        $('#inPageModalTitle').text('Skins');
+        var html = '<link href="assets/css/gallery.css" rel="stylesheet"><div class="row center"><ul>';
+        for (var i = 0; i < KNOWN_SKINS.length; i++) {
+            var name = KNOWN_SKINS[i];
+            html += '<li class="skin" onclick="$(\' #nick\').val(\'' + name + '\'); $(\' #inPageModal\').modal(\'hide\');" >';
+            html += '<div class="circular" style="background-image:url(\'skins/' + name + '.png\')"></div>';
+            html += '<h4 class="title">' + name + '</h4></li>';
         }
+        html += '</ul></div>';
+        $('#inPageModalBody').html(html);
     };
 
     if (null != wHandle.localStorage) {
@@ -1155,24 +1171,6 @@
     };
     wHandle.connect = wsConnect;
 
-    var data = {
-        "action": "test"
-    };
-    wjQuery.ajax({
-        type: "POST",
-        dataType: "json",
-        url: "checkdir.php",
-        data: data,
-        success: function(data) {
-            response = JSON.parse(data["names"]);
-            for (var i = 0; i < response.length; i++) {
-                if (-1 == knownNameDict.indexOf(response[i])) {
-                    knownNameDict.push(response[i]);
-                }
-            }
-        }
-    });
-
     var delay = 500,
         oldX = -1,
         oldY = -1,
@@ -1180,7 +1178,8 @@
         z = 1,
         scoreText = null,
         skins = {},
-        knownNameDict = "".split(";"),
+        // knownNameDict is now seeded from KNOWN_SKINS — no PHP/checkdir needed.
+        knownNameDict = KNOWN_SKINS.slice(),
         knownNameDict_noDisp = [],
         ib = ["_canvas'blob"];
     Cell.prototype = {
@@ -1400,20 +1399,18 @@
                     ctx.moveTo(this.points[0].x, this.points[0].y);
                     for (c = 1; c <= d; ++c) {
                         var e = c % d;
-                        ctx.lineTo(this.points[e].x, this.points[e].y); //Draw circle of cell
+                        ctx.lineTo(this.points[e].x, this.points[e].y);
                     }
                 }
                 ctx.closePath();
                 var skinName = this.name.toLowerCase();
 
-                // Load Premium skin if we have one set
+                // Use explicit skin if sent by server (strip leading % prefix)
                 if (typeof this._skin != 'undefined' && this._skin != '') {
-                    if (this._skin[0] == '%') {
-                        skinName = this._skin.substring(1);
-                    }
+                    skinName = (this._skin[0] === '%') ? this._skin.substring(1) : this._skin;
                 }
 
-                if (showSkin && skinName != '' && -1 != knownNameDict.indexOf(skinName)) {
+                if (showSkin && skinName != '' && knownNameDict.indexOf(skinName) !== -1) {
                     if (!skins.hasOwnProperty(skinName)) {
                         skins[skinName] = new Image;
                         skins[skinName].src = SKIN_URL + skinName + '.png';
@@ -1427,11 +1424,10 @@
                     c = null;
                 }
                 b || ctx.stroke();
-                ctx.fill(); //Draw cell content
+                ctx.fill();
                 if (c) {
                     ctx.save();
                     ctx.clip();
-                    //Draw skin
                     ctx.drawImage(c, this.x - bigPointSize, this.y - bigPointSize, 2 * bigPointSize, 2 * bigPointSize);
                     ctx.restore();
                 }
@@ -1443,7 +1439,6 @@
                 ctx.globalAlpha = 1; 
                 c = -1 != playerCells.indexOf(this);
                 var ncache;
-                //draw name
                 if (0 != this.id) {
                     var x = ~~this.x,
                         y = ~~this.y,
@@ -1462,7 +1457,6 @@
                         b += rnchache.height * 0.5 * ratio + 4;
                     }
 
-                    //draw mass
                     if (showMass && (c || 0 == playerCells.length && (!this.isVirus || this.isAgitated) && 20 < this.size)) {
                         var m = ~~(this.size * this.size * 0.01);
                         c = this.sizeCache;
@@ -1684,9 +1678,6 @@
         favCanvas.height = 32;
         var ctx = favCanvas.getContext("2d");
         renderFavicon();
-
-        // Causes stuttering..
-        //setInterval(renderFavicon, 1E3);
 
         setInterval(drawChatBoard, 1E3);
     });
