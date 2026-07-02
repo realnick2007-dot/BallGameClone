@@ -529,12 +529,12 @@ class Server {
         ;
         // Loop main functions
         if (this.run) {
-            // Move moving nodes first
+            // Move moving nodes first (ejected mass, viruses in flight, etc.)
             var movingSnapshot = this.movingNodes.slice();
             movingSnapshot.forEach((cell) => {
                 if (cell.isRemoved)
                     return;
-                // Scan and check for ejected mass / virus collisions
+                // Advance boost position and refresh quad bounds before collision scan
                 this.boostCell(cell);
                 this.quadTree.find(cell.quadItem.bound, function (check) {
                     var m = self.checkCellCollision(cell, check);
@@ -548,29 +548,66 @@ class Server {
                     if (idx > -1) self.movingNodes.splice(idx, 1);
                 }
             });
-            // Update players and scan for collisions
+
+            // ----------------------------------------------------------------
+            // Player cell update — ORDER IS CRITICAL for wave physics:
+            //
+            //  1. movePlayer()     — integrates mouse input into cell.vel so
+            //                        the velocity vector is populated BEFORE
+            //                        any collision resolution happens this tick.
+            //  2. boostCell()      — applies split/boost displacement and
+            //                        calls updateNodeQuad() internally.
+            //  3. updateNodeQuad() — commits the post-move position to the
+            //                        quad-tree so the upcoming find() sees the
+            //                        cell's true location.
+            //  4. quadTree.find()  — collision scan now works with fresh
+            //                        positions AND fresh velocities, so
+            //                        resolveRigidCollision() can transfer real
+            //                        momentum and chain the wave to neighbours.
+            //  5. Housekeeping     — autoSplit, decay, minion removal.
+            // ----------------------------------------------------------------
             var eatCollisions = [];
-            this.nodesPlayer.forEach((cell) => {
+            var playerSnapshot = this.nodesPlayer.slice();
+            playerSnapshot.forEach((cell) => {
                 if (cell.isRemoved)
                     return;
-                // Scan for eat/rigid collisions and resolve them
-                this.quadTree.find(cell.quadItem.bound, function (check) {
-                    var m = self.checkCellCollision(cell, check);
-                    if (self.checkRigidCollision(m))
-                        self.resolveRigidCollision(m);
-                    else if (check != cell)
-                        eatCollisions.unshift(m);
-                });
+
+                // 1. Move: build vel from mouse this tick
                 this.movePlayer(cell, cell.owner);
+
+                // 2. Boost: apply split/boost arc (calls updateNodeQuad internally)
                 this.boostCell(cell);
-                this.autoSplit(cell, cell.owner);
-                // Decay player cells once per second
-                if (((this.ticks + 3) % 25) === 0)
-                    this.updateSizeDecay(cell);
-                // Remove external minions if necessary
-                if (cell.owner.isMinion) {
-                    cell.owner.socket.close(1000, "Minion");
-                    this.removeNode(cell);
+
+                // 3. Commit post-move position to quad-tree so the scan below
+                //    sees where the cell actually is after movement.
+                //    (boostCell already calls updateNodeQuad when boosting;
+                //     this covers the non-boosting case where only movePlayer
+                //     changed the position.)
+                if (!cell.isRemoved)
+                    this.updateNodeQuad(cell);
+
+                // 4. Collision scan — vel is populated, position is fresh
+                if (!cell.isRemoved) {
+                    this.quadTree.find(cell.quadItem.bound, function (check) {
+                        var m = self.checkCellCollision(cell, check);
+                        if (self.checkRigidCollision(m))
+                            self.resolveRigidCollision(m);
+                        else if (check != cell)
+                            eatCollisions.unshift(m);
+                    });
+                }
+
+                // 5. Housekeeping
+                if (!cell.isRemoved) {
+                    this.autoSplit(cell, cell.owner);
+                    // Decay player cells once per second
+                    if (((this.ticks + 3) % 25) === 0)
+                        this.updateSizeDecay(cell);
+                    // Remove external minions if necessary
+                    if (cell.owner.isMinion) {
+                        cell.owner.socket.close(1000, "Minion");
+                        this.removeNode(cell);
+                    }
                 }
             });
             eatCollisions.forEach((m) => {
@@ -838,6 +875,11 @@ class Server {
     //
     // FREEZE mechanic: if either colliding cell's owner is frozen, skip the
     // entire resolution so frozen cells phase through each other silently.
+    //
+    // QUAD UPDATE: after correcting positions, both cells' quad-tree bounds are
+    // refreshed immediately. This is essential for wave chaining — without it,
+    // the next cell processed in the same tick's forEach cannot detect the
+    // just-pushed neighbour because the tree still holds its pre-push position.
     resolveRigidCollision(m) {
         // Frozen cells phase through — no position correction, no impulse
         if ((m.cell.owner && m.cell.owner.cellsFrozen) ||
@@ -905,6 +947,14 @@ class Server {
             }
         }
         // --- End wave physics ---
+
+        // Refresh quad-tree bounds for both cells immediately after the position
+        // correction. This allows any subsequent cell in the same tick's forEach
+        // to detect the newly-pushed neighbour and continue the wave chain.
+        if (!m.cell.isRemoved && m.cell.quadItem)
+            this.updateNodeQuad(m.cell);
+        if (!m.check.isRemoved && m.check.quadItem)
+            this.updateNodeQuad(m.check);
     }
     // Resolves non-rigid body collision (eat/merge)
     resolveCollision(m) {
@@ -1005,22 +1055,22 @@ class Server {
         }
     }
     // Spawns a GrowthPellet at the player's cursor position.
-spawnGrowthPellet(position, owner) {
-    var cap = this.config.growthPelletMaxAmount || 3;
-    var liveCount = 0;
-    for (var i = 0; i < this.nodesGrowthPellets.length; i++) {
-        var p = this.nodesGrowthPellets[i];
-        if (!p.isRemoved && p.spawner === owner) liveCount++;
-    }
-    if (liveCount >= cap) return null;
+    spawnGrowthPellet(position, owner) {
+        var cap = this.config.growthPelletMaxAmount || 3;
+        var liveCount = 0;
+        for (var i = 0; i < this.nodesGrowthPellets.length; i++) {
+            var p = this.nodesGrowthPellets[i];
+            if (!p.isRemoved && p.spawner === owner) liveCount++;
+        }
+        if (liveCount >= cap) return null;
 
-    var x = Math.max(this.border.minx, Math.min(this.border.minx + this.border.width,  position.x));
-    var y = Math.max(this.border.miny, Math.min(this.border.miny + this.border.height, position.y));
-    var safePos = new Vec2(x, y);
-    var pellet = new Entity.GrowthPellet(this, owner, safePos, this.config.growthPelletSize);
-    this.addNode(pellet);
-    return pellet;
-}
+        var x = Math.max(this.border.minx, Math.min(this.border.minx + this.border.width,  position.x));
+        var y = Math.max(this.border.miny, Math.min(this.border.miny + this.border.height, position.y));
+        var safePos = new Vec2(x, y);
+        var pellet = new Entity.GrowthPellet(this, owner, safePos, this.config.growthPelletSize);
+        this.addNode(pellet);
+        return pellet;
+    }
     spawnCells(virusCount, foodCount) {
         for (var i = 0; i < foodCount; i++) {
             this.spawnFood();
