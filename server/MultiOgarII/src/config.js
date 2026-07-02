@@ -214,17 +214,19 @@ module.exports = Object.seal({
 // [WAVE PHYSICS]
 // cellFriction: Velocity multiplier applied to each player cell every tick.
 //   1.0 = no friction (cells coast forever), 0.0 = instant stop.
-//   0.82 gives a natural ~5-tick coast — enough for a visible wave without infinite sliding.
+//   0.93 gives a long coast (~10 ticks) so impulse waves travel the full cell chain
+//   before dissipating — needed for linesplit chain-push to work.
 // cellRestitution: Bounciness coefficient on rigid cell-cell collision (impulse transfer).
 //   0.0 = perfectly inelastic (cells absorb all momentum on impact, no wave).
 //   1.0 = perfectly elastic (full Newton's cradle bounce, very chaotic).
-//   0.35 matches Cellcraft-style wave propagation — subtle but clearly visible.
+//   0.55 transfers enough energy per contact to propagate down a linesplit chain.
 // cellVelScale: Fraction of each tick's mouse-step displacement that feeds into
-//   the persistent velocity vector. 1.0 = full contribution. 0.6 = tighter steering.
-//   Lower values make the cell feel more "planted"; higher values increase wave amplitude.
-"cellFriction": 0.82,
-"cellRestitution": 0.35,
-"cellVelScale": 0.8,
+//   the persistent velocity vector. Lower values prevent mouse-pull from
+//   overwriting a collision impulse on the very next tick, keeping the outward
+//   push direction clean for linesplit / oval spread geometry.
+"cellFriction": 0.93,
+"cellRestitution": 0.55,
+"cellVelScale": 0.55,
 
 // [MINIONS]
 // Custom minion settings
