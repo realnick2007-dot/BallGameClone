@@ -46,8 +46,8 @@ module.exports = Object.seal({
 "serverTracker": 0,
 "serverGamemode": 0,
 "serverBots": 10,
-"serverViewBaseX": 1920,
-"serverViewBaseY": 1080,
+"serverViewBaseX": 19200,
+"serverViewBaseY": 10800,
 "serverMinScale": 0.15,
 "serverSpectatorScale": 0.4,
 "serverStatsPort": 88,
@@ -114,12 +114,12 @@ module.exports = Object.seal({
 "powerupVirusDelay": 0.1,
 "powerupVirusEvery": true,
 "powerupGrowth": true,
-"powerupGrowthDelay": 0.5,
+"powerupGrowthDelay": 0.1,
 "powerupGrowthEvery": false,
 "growthPelletSize": 80,
-"growthPelletMassBoost": 500,
+"growthPelletMassBoost": 150000,
 "growthPelletLifeTime": 10,
-"growthPelletMaxAmount": 3,
+"growthPelletMaxAmount": 50,
 
 // [BORDER]
 // Border size (vanilla 14142.135623730952)
@@ -214,19 +214,17 @@ module.exports = Object.seal({
 // [WAVE PHYSICS]
 // cellFriction: Velocity multiplier applied to each player cell every tick.
 //   1.0 = no friction (cells coast forever), 0.0 = instant stop.
-//   0.93 gives a long coast (~10 ticks) so impulse waves travel the full cell chain
-//   before dissipating — needed for linesplit chain-push to work.
+//   0.82 gives a natural ~5-tick coast — enough for a visible wave without infinite sliding.
 // cellRestitution: Bounciness coefficient on rigid cell-cell collision (impulse transfer).
 //   0.0 = perfectly inelastic (cells absorb all momentum on impact, no wave).
 //   1.0 = perfectly elastic (full Newton's cradle bounce, very chaotic).
-//   0.55 transfers enough energy per contact to propagate down a linesplit chain.
+//   0.35 matches Cellcraft-style wave propagation — subtle but clearly visible.
 // cellVelScale: Fraction of each tick's mouse-step displacement that feeds into
-//   the persistent velocity vector. Lower values prevent mouse-pull from
-//   overwriting a collision impulse on the very next tick, keeping the outward
-//   push direction clean for linesplit / oval spread geometry.
-"cellFriction": 0.93,
-"cellRestitution": 0.55,
-"cellVelScale": 0.55,
+//   the persistent velocity vector. 1.0 = full contribution. 0.6 = tighter steering.
+//   Lower values make the cell feel more "planted"; higher values increase wave amplitude.
+"cellFriction": 0.82,
+"cellRestitution": 0.35,
+"cellVelScale": 0.8,
 
 // [MINIONS]
 // Custom minion settings
