@@ -92,6 +92,12 @@
                         spacePressed = true;
                     }
                     break;
+		case 51: // 3 — Growth powerup
+  		  if (!isTyping) {
+  		      sendMouseMove();
+   		     sendUint8(28);
+ 		   }
+ 		   break;
                 case 87: // W
                     if ((!wPressed) && (!isTyping)) {
                         sendMouseMove();
@@ -108,7 +114,7 @@
                 case 69: // E
                     if (!ePressed && (!isTyping)) {
                         sendMouseMove();
-                        //sendUint8(22);
+                        //sendUint8(22); 
                         sendUint8(26); //Recombine
                         ePressed = true;
                     }
@@ -127,7 +133,7 @@
                         tPressed = true;
                     }
                     break;
-                case 80: // P — Freeze/thaw
+                case 80: // P
                     if (!pPressed && (!isTyping)) {
                         sendMouseMove();
                         sendUint8(25);
@@ -153,7 +159,7 @@
                     showOverlays(true);
                     break;
                 // NOTE: key 51 ("3") is handled by inventory.js so the
-                // cooldown ring and flash are managed there. No duplicate
+                // cooldown ring and flash are managed there.  No duplicate
                 // handler needed here.
             }
         };
@@ -1176,7 +1182,7 @@
         skins = {},
         knownNameDict = "".split(";"),
         knownNameDict_noDisp = [],
-        ib = ["_canvas_blob"];
+        ib = ["_canvas'blob"];
     Cell.prototype = {
         id: 0,
         points: null,
@@ -1381,7 +1387,7 @@
                     if (b) ctx.strokeStyle = this.getStrokeColor();
                     else ctx.strokeStyle = this.color;
                 }
-                ctx.beginPath();
+				ctx.beginPath();
                 if (b) {
                     var lw = this.size * 0.03;
                     ctx.lineWidth = lw;
