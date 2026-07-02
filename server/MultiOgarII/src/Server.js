@@ -634,12 +634,8 @@ class Server {
     // FREEZE mechanic: if client.cellsFrozen is true, all movement and velocity
     // updates are suppressed entirely. The cell stays exactly where it is.
     movePlayer(cell, client) {
-        if (client.socket.isConnected == false || client.frozen || !client.mouse)
+        if (client.socket.isConnected == false || client.cellsFrozen || !client.mouse)
             return; // Do not move
-
-        // --- Freeze mechanic: skip all physics while frozen ---
-        if (client.cellsFrozen) return;
-        // --- End freeze ---
 
         // --- Recombine powerup: rush all non-anchor cells toward the anchor ---
         if (client.mergeOverride && client.cells.length > 1) {
@@ -1104,7 +1100,7 @@ spawnGrowthPellet(position, owner) {
         return true;
     }
     ejectMass(client) {
-        if (!this.canEjectMass(client) || client.frozen)
+        if (!this.canEjectMass(client) || client.cellsFrozen)
             return;
         for (var i = 0; i < client.cells.length; i++) {
             var cell = client.cells[i];
