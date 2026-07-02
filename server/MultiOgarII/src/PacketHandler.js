@@ -60,6 +60,7 @@ class PacketHandler {
             22: this.message_onKeyE.bind(this),
             23: this.message_onKeyR.bind(this),
             24: this.message_onKeyT.bind(this),
+            25: this.message_onKeyF.bind(this),  // Freeze/thaw player cells
             26: this.message_onKeyG.bind(this),
             27: this.message_onKeyH.bind(this),
             28: this.message_onKey3.bind(this),  // Growth pellet powerup
@@ -143,11 +144,6 @@ class PacketHandler {
     }
     /**
      * Growth pellet powerup — spawns a GrowthPellet at the player's cursor.
-     *
-     * Fix (Step 5): enforce growthPelletMaxAmount per-player BEFORE spawning.
-     * This mirrors the virusMaxAmount check and prevents stacking via rapid-fire
-     * even if powerupGrowthDelay is later misconfigured. Silently blocks without
-     * burning the cooldown — consistent with how virusMaxAmount is handled.
      */
     message_onKey3(message) {
         var client = this.socket.playerTracker;
@@ -156,13 +152,46 @@ class PacketHandler {
             if (this.server.config.powerupGrowthEvery) client.lastUsedGrowth = this.server.ticks;
             return;
         }
-        // Enforce max live pellets per player (mirrors virusMaxAmount pattern).
         var max  = this.server.config.growthPelletMaxAmount || 3;
         var live = this.server.nodesGrowthPellets.filter(function(p) { return p.spawner === client; }).length;
-        if (live >= max) return;  // silently block — do not burn cooldown
+        if (live >= max) return;
 
         var pellet = this.server.spawnGrowthPellet(client.mouse, client);
         if (pellet) client.lastUsedGrowth = this.server.ticks;
+    }
+    /**
+     * F key — toggle freeze/thaw for the player's own cells.
+     *
+     * FREEZE: all cells have their velocity and boost zeroed immediately.
+     *         movePlayer() will early-return each tick while frozen, so no
+     *         position, vel, or boost updates are applied at all.
+     *
+     * THAW:   server.thawPlayer() is called which back-dates each cell's
+     *         createdAt so that getAge() already exceeds grace + bloom.
+     *         This means rigid collisions and remerge checks kick in
+     *         immediately on the very next tick — no delay windows.
+     */
+    message_onKeyF(message) {
+        var client = this.socket.playerTracker;
+        if (client.spectate || client.cells.length === 0) return;
+
+        client.cellsFrozen = !client.cellsFrozen;
+
+        if (client.cellsFrozen) {
+            // FREEZE: kill velocity and boost on every cell right now
+            for (var i = 0; i < client.cells.length; i++) {
+                var cell = client.cells[i];
+                if (cell.vel) {
+                    cell.vel.x = 0;
+                    cell.vel.y = 0;
+                }
+                cell.boostDistance = 0;
+                cell.isMoving = false;
+            }
+        } else {
+            // THAW: skip all grace/bloom delays
+            this.server.thawPlayer(client);
+        }
     }
     message_onKeyW(message) {
         if (message.length !== 1)
@@ -196,9 +225,6 @@ class PacketHandler {
             return;
         }
         if (client.spectate) return;
-        // Activate recombine mode — mergeOverride drives the actual merging.
-        // Do NOT call setBoost/saveBoost here: that is what causes the forward push
-        // when cells consume each other under mergeOverride.
         if (client.cells.length > 1) client.mergeOverride = true;
         client.lastUsedRecombine = this.server.ticks;
     }
@@ -328,7 +354,6 @@ class PacketHandler {
                 socket.send(buffer, { binary: true });
         }
         else {
-            // ws@8 fix: readyState is read-only, use terminate() instead of setting it manually
             socket.terminate();
         }
     }

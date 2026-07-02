@@ -51,6 +51,9 @@ class PlayerTracker {
         this.frozen = false;
         this.customspeed = 0;
         this.rec = false;
+        // Freeze mechanic (F key): player-toggled, freezes own cells in place.
+        // On unfreeze, thawPlayer() is called to skip grace/bloom delays.
+        this.cellsFrozen = false;
         // Minions
         this.miQ = false;
         this.isMi = false;
@@ -143,6 +146,8 @@ class PlayerTracker {
         this.spectate = false;
         this.freeRoam = false;
         this.spectateTarget = null;
+        // Reset freeze state on respawn so player doesn't start frozen
+        this.cellsFrozen = false;
         // BUG 2 FIX: reset growth cooldown on each spawn so a stale tick value
         // from a previous life never permanently blocks the powerup.
         this.lastUsedGrowth = 0;
