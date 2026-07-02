@@ -116,9 +116,11 @@ class PlayerTracker {
     }
     setSkin(skin) {
         this._skin = skin;
+        // Protocol 5-10: skin sent as "%skinname" (% prefix required by client)
         var writer = new BinaryWriter();
-        writer.writeStringZeroUtf8(skin);
+        writer.writeStringZeroUtf8("%" + skin);
         this._skinUtf8 = writer.toBuffer();
+        // Protocol 11+: same % prefix format
         var writer1 = new BinaryWriter();
         writer1.writeStringZeroUtf8("%" + skin);
         this._skinUtf8protocol11 = writer1.toBuffer();

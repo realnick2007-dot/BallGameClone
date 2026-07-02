@@ -16,6 +16,9 @@ class PacketHandler {
         this.pressQ = false;
         this.pressW = false;
         this.pressSpace = false;
+        // Macro eject: track W held state and last eject tick for throttling
+        this.wHeld = false;
+        this.lastMacroEjectTick = 0;
         this.mouseData = null;
         this.handler = {
             254: this.handshake_onProtocol.bind(this),
@@ -64,6 +67,8 @@ class PacketHandler {
             26: this.message_onKeyG.bind(this),
             27: this.message_onKeyH.bind(this),
             28: this.message_onKey3.bind(this),  // Growth pellet powerup
+            // Opcode 29: W key release — stops macro eject
+            29: this.message_onKeyWRelease.bind(this),
             99: this.message_onChat.bind(this),
             254: this.message_onStat.bind(this),
         };
@@ -161,15 +166,6 @@ class PacketHandler {
     }
     /**
      * F key — toggle freeze/thaw for the player's own cells.
-     *
-     * FREEZE: all cells have their velocity and boost zeroed immediately.
-     *         movePlayer() will early-return each tick while frozen, so no
-     *         position, vel, or boost updates are applied at all.
-     *
-     * THAW:   server.thawPlayer() is called which back-dates each cell's
-     *         createdAt so that getAge() already exceeds grace + bloom.
-     *         This means rigid collisions and remerge checks kick in
-     *         immediately on the very next tick — no delay windows.
      */
     message_onKeyF(message) {
         var client = this.socket.playerTracker;
@@ -178,7 +174,6 @@ class PacketHandler {
         client.cellsFrozen = !client.cellsFrozen;
 
         if (client.cellsFrozen) {
-            // FREEZE: kill velocity and boost on every cell right now
             for (var i = 0; i < client.cells.length; i++) {
                 var cell = client.cells[i];
                 if (cell.vel) {
@@ -189,19 +184,30 @@ class PacketHandler {
                 cell.isMoving = false;
             }
         } else {
-            // THAW: skip all grace/bloom delays
             this.server.thawPlayer(client);
         }
     }
+    /**
+     * W keydown — begin macro eject. Sets wHeld so process() fires ejectMass
+     * every tick while held, throttled by ejectCooldown.
+     */
     message_onKeyW(message) {
         if (message.length !== 1)
             return;
         if (this.socket.playerTracker.miQ) {
             this.socket.playerTracker.minionEject = true;
-        }
-        else {
+        } else {
+            this.wHeld = true;
+            // Also fire one immediate eject on keydown (single-tap still works)
             this.pressW = true;
         }
+    }
+    /**
+     * Opcode 29: W keyup — stop macro eject.
+     * The client must send opcode 29 on keyup for hold-to-macro to work.
+     */
+    message_onKeyWRelease(message) {
+        this.wHeld = false;
     }
     message_onKeyE(message) {
         if (this.server.config.disableERTP)
@@ -289,9 +295,18 @@ class PacketHandler {
             this.socket.playerTracker.pressSpace();
             this.pressSpace = false;
         }
-        if (this.pressW) { // Eject mass
+        if (this.pressW) { // Single eject on keydown
             this.socket.playerTracker.pressW();
             this.pressW = false;
+        }
+        // Macro eject: fire every tick while W is held, throttled by ejectCooldown
+        if (this.wHeld && !this.pressW) {
+            var cooldown = this.server.config.ejectCooldown || 3;
+            var dt = this.server.ticks - this.lastMacroEjectTick;
+            if (dt >= cooldown) {
+                this.socket.playerTracker.pressW();
+                this.lastMacroEjectTick = this.server.ticks;
+            }
         }
         if (this.pressQ) { // Q Press
             this.socket.playerTracker.pressQ();
