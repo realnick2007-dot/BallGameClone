@@ -97,6 +97,34 @@ class Server {
 
     // -------------------------------------------------------------------------
 
+    /**
+     * Thaws a previously frozen player, immediately skipping all grace/bloom
+     * delay windows so normal physics (rigid collisions, wave impulse, remerge)
+     * kick in on the very next tick.
+     *
+     * How it works: getAge() returns (server.ticks - cell.createdAt). By
+     * back-dating createdAt we make every cell appear old enough to have
+     * already passed splitGraceTime + splitBloomTime. We also zero vel/boost
+     * and set _canRemerge so the remerge timer is also skipped.
+     */
+    thawPlayer(client) {
+        var skipTicks = this.getSplitGraceTime() + this.getSplitBloomTime();
+        for (var i = 0; i < client.cells.length; i++) {
+            var cell = client.cells[i];
+            // Back-date so getAge() is already past grace + bloom
+            cell.createdAt = this.ticks - skipTicks - 1;
+            // Allow remerge immediately
+            cell._canRemerge = true;
+            // Zero out any residual velocity and boost so the unfreeze feels clean
+            if (cell.vel) {
+                cell.vel.x = 0;
+                cell.vel.y = 0;
+            }
+            cell.boostDistance = 0;
+            cell.isMoving = false;
+        }
+    }
+
     start() {
         this.timerLoopBind = this.timerLoop.bind(this);
         this.mainLoopBind = this.mainLoop.bind(this);
@@ -602,9 +630,16 @@ class Server {
     //   - Every other cell moves toward the anchor at (normal speed + bonus),
     //     expressed in world units per tick so the rush is visible at any distance.
     //   - config.recombineBoostSpeed controls the bonus (default 150 world units/tick).
+    //
+    // FREEZE mechanic: if client.cellsFrozen is true, all movement and velocity
+    // updates are suppressed entirely. The cell stays exactly where it is.
     movePlayer(cell, client) {
         if (client.socket.isConnected == false || client.frozen || !client.mouse)
             return; // Do not move
+
+        // --- Freeze mechanic: skip all physics while frozen ---
+        if (client.cellsFrozen) return;
+        // --- End freeze ---
 
         // --- Recombine powerup: rush all non-anchor cells toward the anchor ---
         if (client.mergeOverride && client.cells.length > 1) {
@@ -804,7 +839,14 @@ class Server {
     // a chain of player cells to propagate a push wave (Newton's cradle /
     // Cellcraft-style behaviour). The impulse is scaled by bloomScale so
     // freshly-split cells don't receive violent wave forces during the bloom ramp.
+    //
+    // FREEZE mechanic: if either colliding cell's owner is frozen, skip the
+    // entire resolution so frozen cells phase through each other silently.
     resolveRigidCollision(m) {
+        // Frozen cells phase through — no position correction, no impulse
+        if ((m.cell.owner && m.cell.owner.cellsFrozen) ||
+            (m.check.owner && m.check.owner.cellsFrozen)) return;
+
         if (m.d == 0) return; // coincident cells — skip to avoid division by zero
 
         var overlap = m.cell._size + m.check._size - m.d;
