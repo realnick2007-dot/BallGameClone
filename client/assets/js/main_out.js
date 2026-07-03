@@ -7,7 +7,8 @@
     // This replaces the PHP checkdir.php call so the client works locally/offline.
     // ---------------------------------------------------------------------------
     var KNOWN_SKINS = ["ball"];
-
+	wHandle.coinImage = new Image();
+	wHandle.coinImage.src = 'assets/img/coin.png'; // drop your coin PNG here
     wHandle.setserver = function(arg) {
         if (arg != CONNECTION_URL) {
             CONNECTION_URL = arg;
@@ -663,6 +664,7 @@
             node.isVirus = flagVirus;
             node.isEjected = flagEjected;
             node.isAgitated = flagAgitated;
+			node.isCoin = !!(flags & 0x40); // use bit 0x40 for coin flag
             node.nx = posX;
             node.ny = posY;
             node.setSize(size);
@@ -1283,6 +1285,22 @@
             if (this.flag & 32)(b *= .25);
             return ~~Math.max(b, a);
         },
+		if (this.isCoin) {
+    // Draw a gold circle
+    ctx.beginPath();
+    ctx.arc(0, 0, this.size, 0, 2 * Math.PI);
+    ctx.fillStyle = '#FFD700';
+    ctx.fill();
+    ctx.strokeStyle = '#B8860B';
+    ctx.lineWidth = Math.max(3, this.size * 0.08);
+    ctx.stroke();
+    // Overlay coin image if loaded
+    if (wHandle.coinImage && wHandle.coinImage.complete) {
+        var s = this.size * 1.6;
+        ctx.drawImage(wHandle.coinImage, -s/2, -s/2, s, s);
+    }
+    return; // skip normal blob drawing
+}
         movePoints: function() {
             this.createPoints();
             for (var points = this.points, pointsacc = this.pointsAcc, numpoints = points.length, i = 0; i < numpoints; ++i) {
