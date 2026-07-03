@@ -29,6 +29,7 @@ class Server {
         this.nodesFood = []; // Food nodes
         this.nodesEjected = []; // Ejected nodes
         this.nodesPlayer = []; // Player nodes
+        this.nodesCoins = []; // Coin nodes
         this.movingNodes = []; // For move engine
         this.leaderboard = []; // For leaderboard
         this.leaderboardType = -1; // No type
@@ -101,21 +102,13 @@ class Server {
      * Thaws a previously frozen player, immediately skipping all grace/bloom
      * delay windows so normal physics (rigid collisions, wave impulse, remerge)
      * kick in on the very next tick.
-     *
-     * How it works: getAge() returns (server.ticks - cell.createdAt). By
-     * back-dating createdAt we make every cell appear old enough to have
-     * already passed splitGraceTime + splitBloomTime. We also zero vel/boost
-     * and set _canRemerge so the remerge timer is also skipped.
      */
     thawPlayer(client) {
         var skipTicks = this.getSplitGraceTime() + this.getSplitBloomTime();
         for (var i = 0; i < client.cells.length; i++) {
             var cell = client.cells[i];
-            // Back-date so getAge() is already past grace + bloom
             cell.createdAt = this.ticks - skipTicks - 1;
-            // Allow remerge immediately
             cell._canRemerge = true;
-            // Zero out any residual velocity and boost so the unfreeze feels clean
             if (cell.vel) {
                 cell.vel.x = 0;
                 cell.vel.y = 0;
@@ -166,6 +159,11 @@ class Server {
             Logger.info("Added " + this.config.serverBots + " player bots");
         }
         this.spawnCells(this.config.virusAmount, this.config.foodAmount);
+        // Spawn initial coins
+        var coinAmount = this.config.coinAmount || 50;
+        for (var i = 0; i < coinAmount; i++) {
+            this.spawnCoin();
+        }
     }
     addNode(node) {
         // Add to quad-tree & node list
@@ -239,7 +237,6 @@ class Server {
         var self = this;
         ws.on('message', function (message) {
             if (self.config.serverWsModule === "uws")
-                // uws gives ArrayBuffer - convert it to Buffer
                 message = parseInt(process.version[1]) < 6 ? Buffer.from(message) : Buffer.from(message);
             if (!message.length)
                 return;
@@ -273,12 +270,10 @@ class Server {
         this.checkMinion(ws, req);
     }
     checkMinion(ws, req) {
-        // Check headers (maybe have a config for this?)
         if (!req.headers['user-agent'] || !req.headers['cache-control'] ||
             req.headers['user-agent'].length < 50) {
             ws.playerTracker.isMinion = true;
         }
-        // External minion detection
         if (this.config.serverMinionThreshold) {
             if ((ws.lastAliveTime - this.startTime) / 1000 >= this.config.serverMinionIgnoreTime) {
                 if (this.minionTest.length >= this.config.serverMinionThreshold) {
@@ -295,7 +290,6 @@ class Server {
                 this.minionTest.push(ws.playerTracker);
             }
         }
-        // Add server minions if needed
         if (this.config.serverMinions && !ws.playerTracker.isMinion) {
             for (var i = 0; i < this.config.serverMinions; i++) {
                 this.bots.addMinion(ws.playerTracker);
@@ -311,7 +305,6 @@ class Server {
         }
         var ipBin = ipAddress.split('.');
         if (ipBin.length != 4) {
-            // unknown IP format
             return false;
         }
         var subNet2 = ipBin[0] + "." + ipBin[1] + ".*.*";
@@ -332,12 +325,10 @@ class Server {
         this.border.height = height;
     }
     getRandomColor() {
-        // get random
         var colorRGB = [0xFF, 0x07, (Math.random() * 256) >> 0];
         colorRGB.sort(function () {
             return 0.5 - Math.random();
         });
-        // return random
         return {
             r: colorRGB[0],
             g: colorRGB[1],
@@ -345,22 +336,18 @@ class Server {
         };
     }
     removeNode(node) {
-        // Remove from quad-tree
         node.isRemoved = true;
         this.quadTree.remove(node.quadItem);
         node.quadItem = null;
-        // Remove from node lists
         var i = this.nodes.indexOf(node);
         if (i > -1)
             this.nodes.splice(i, 1);
         i = this.movingNodes.indexOf(node);
         if (i > -1)
             this.movingNodes.splice(i, 1);
-        // Special on-remove actions
         node.onRemove(this);
     }
     updateClients() {
-        // check dead clients
         var len = this.clients.length;
         for (var i = 0; i < len;) {
             if (!this.clients[i]) {
@@ -369,12 +356,10 @@ class Server {
             }
             this.clients[i].playerTracker.checkConnection();
             if (this.clients[i].playerTracker.isRemoved || this.clients[i].isCloseRequest)
-                // remove dead client
                 this.clients.splice(i, 1);
             else
                 i++;
         }
-        // update
         for (var i = 0; i < len; i++) {
             if (!this.clients[i])
                 continue;
@@ -385,7 +370,6 @@ class Server {
                 continue;
             this.clients[i].playerTracker.sendUpdate();
         }
-        // check minions
         for (var i = 0, test = this.minionTest.length; i < test;) {
             if (!this.minionTest[i]) {
                 i++;
@@ -399,14 +383,11 @@ class Server {
         }
     }
     updateLeaderboard() {
-        // Update leaderboard with the gamemode's method
         this.leaderboard = [];
         this.leaderboardType = -1;
         this.mode.updateLB(this, this.leaderboard);
         if (!this.mode.specByLeaderboard) {
-            // Get client with largest score if gamemode doesn't have a leaderboard
             var clients = this.clients.valueOf();
-            // Use sort function
             clients.sort(function (a, b) {
                 return b.playerTracker._score - a.playerTracker._score;
             });
@@ -422,11 +403,9 @@ class Server {
         if (!message || !(message = message.trim()))
             return;
         if (!this.config.serverChat || (from && from.isMuted)) {
-            // chat is disabled or player is muted
             return;
         }
         if (from && message.length && message[0] == '/') {
-            // player command
             from.socket.playerCommand.processMessage(from, message);
             return;
         }
@@ -465,7 +444,6 @@ class Server {
             if (!to || to == this.clients[i].playerTracker) {
                 var Packet = require('./packet');
                 if (this.config.separateChatForTeams && this.mode.haveTeams) {
-                    //  from equals null if message from server
                     if (from == null || from.team === this.clients[i].playerTracker.team) {
                         this.clients[i].packetHandler.sendPacket(new Packet.ChatMessage(from, message));
                     }
@@ -486,7 +464,6 @@ class Server {
         }
         if (dt > 120)
             this.timeStamp = ts - timeStep;
-        // update average, calculate next
         this.updateTimeAvg += 0.5 * (this.updateTime - this.updateTimeAvg);
         this.timeStamp += timeStep;
         setTimeout(this.mainLoopBind, 0);
@@ -513,6 +490,7 @@ class Server {
             this.nodesFood = [];
             this.nodesEjected = [];
             this.nodesPlayer = [];
+            this.nodesCoins = [];
             this.movingNodes = [];
             if (this.config.serverBots) {
                 for (var i = 0; i < this.config.serverBots; i++)
@@ -529,12 +507,10 @@ class Server {
         ;
         // Loop main functions
         if (this.run) {
-            // Move moving nodes first (ejected mass, viruses in flight, etc.)
             var movingSnapshot = this.movingNodes.slice();
             movingSnapshot.forEach((cell) => {
                 if (cell.isRemoved)
                     return;
-                // Advance boost position and refresh quad bounds before collision scan
                 this.boostCell(cell);
                 this.quadTree.find(cell.quadItem.bound, function (check) {
                     var m = self.checkCellCollision(cell, check);
@@ -549,44 +525,18 @@ class Server {
                 }
             });
 
-            // ----------------------------------------------------------------
-            // Player cell update — ORDER IS CRITICAL for wave physics:
-            //
-            //  1. movePlayer()     — integrates mouse input into cell.vel so
-            //                        the velocity vector is populated BEFORE
-            //                        any collision resolution happens this tick.
-            //  2. boostCell()      — applies split/boost displacement and
-            //                        calls updateNodeQuad() internally.
-            //  3. updateNodeQuad() — commits the post-move position to the
-            //                        quad-tree so the upcoming find() sees the
-            //                        cell's true location.
-            //  4. quadTree.find()  — collision scan now works with fresh
-            //                        positions AND fresh velocities, so
-            //                        resolveRigidCollision() can transfer real
-            //                        momentum and chain the wave to neighbours.
-            //  5. Housekeeping     — autoSplit, decay, minion removal.
-            // ----------------------------------------------------------------
             var eatCollisions = [];
             var playerSnapshot = this.nodesPlayer.slice();
             playerSnapshot.forEach((cell) => {
                 if (cell.isRemoved)
                     return;
 
-                // 1. Move: build vel from mouse this tick
                 this.movePlayer(cell, cell.owner);
-
-                // 2. Boost: apply split/boost arc (calls updateNodeQuad internally)
                 this.boostCell(cell);
 
-                // 3. Commit post-move position to quad-tree so the scan below
-                //    sees where the cell actually is after movement.
-                //    (boostCell already calls updateNodeQuad when boosting;
-                //     this covers the non-boosting case where only movePlayer
-                //     changed the position.)
                 if (!cell.isRemoved)
                     this.updateNodeQuad(cell);
 
-                // 4. Collision scan — vel is populated, position is fresh
                 if (!cell.isRemoved) {
                     this.quadTree.find(cell.quadItem.bound, function (check) {
                         var m = self.checkCellCollision(cell, check);
@@ -597,13 +547,10 @@ class Server {
                     });
                 }
 
-                // 5. Housekeeping
                 if (!cell.isRemoved) {
                     this.autoSplit(cell, cell.owner);
-                    // Decay player cells once per second
                     if (((this.ticks + 3) % 25) === 0)
                         this.updateSizeDecay(cell);
-                    // Remove external minions if necessary
                     if (cell.owner.isMinion) {
                         cell.owner.socket.close(1000, "Minion");
                         this.removeNode(cell);
@@ -614,25 +561,19 @@ class Server {
                 this.resolveCollision(m);
             });
             // Remove dead viruses
-            // FIX: iterate a snapshot so that onRemove()'s splice() cannot skip
-            // elements or revisit an already-removed node (quadItem=null crash).
             if (this.config.virusLifeTime) {
                 var virusSnapshot = this.nodesVirus.slice();
                 virusSnapshot.forEach(virus => {
-                    if (virus.isRemoved) return; // guard: already removed this tick
+                    if (virus.isRemoved) return;
                     if (this.ticks >= virus.createdAt + this.config.virusLifeTime * 25)
                         this.removeNode(virus);
                 });
             }
             // Remove expired growth pellets
-            // FIX: same snapshot + isRemoved guard as above. Without the snapshot,
-            // forEach skips elements after splice(); without the isRemoved guard,
-            // a pellet eaten in the same tick (quadItem=null) causes
-            // quadTree.remove(null) to throw, killing the WebSocket process (1006).
             if (this.config.growthPelletLifeTime) {
                 var pelletSnapshot = this.nodesGrowthPellets.slice();
                 pelletSnapshot.forEach(pellet => {
-                    if (pellet.isRemoved) return; // guard: already eaten this tick
+                    if (pellet.isRemoved) return;
                     if (this.ticks >= pellet.createdAt + this.config.growthPelletLifeTime * 25)
                         this.removeNode(pellet);
                 });
@@ -643,40 +584,18 @@ class Server {
         if (!this.run && this.mode.IsTournament)
             this.ticks++;
         this.updateClients();
-        // update leaderboard
         if (((this.ticks + 7) % 25) === 0)
-            this.updateLeaderboard(); // once per second
-        // ping server tracker
+            this.updateLeaderboard();
         if (this.config.serverTracker && (this.ticks % 750) === 0)
-            this.pingServerTracker(); // once per 30 seconds
-        // update-update time
+            this.pingServerTracker();
         var tEnd = process.hrtime(tStart);
         this.updateTime = tEnd[0] * 1e3 + tEnd[1] / 1e6;
     }
-    // Move a player cell each tick.
-    // WAVE PHYSICS: each tick the mouse-driven displacement is blended into a
-    // persistent velocity vector (cell.vel) rather than directly teleporting the
-    // cell. The velocity decays via cellFriction each tick, so cells coast and
-    // carry momentum. resolveRigidCollision() then transfers that momentum to
-    // neighbouring cells via an impulse, producing the Newton's-cradle wave push
-    // seen on Cellcraft.io.
-    //
-    // Recombine powerup behaviour (unchanged):
-    //   - The "anchor" cell is the one closest to the mouse cursor — it moves
-    //     toward the mouse at normal speed so the player steers where they merge.
-    //   - Every other cell moves toward the anchor at (normal speed + bonus),
-    //     expressed in world units per tick so the rush is visible at any distance.
-    //   - config.recombineBoostSpeed controls the bonus (default 150 world units/tick).
-    //
-    // FREEZE mechanic: if client.cellsFrozen is true, all movement and velocity
-    // updates are suppressed entirely. The cell stays exactly where it is.
     movePlayer(cell, client) {
         if (client.socket.isConnected == false || client.cellsFrozen || !client.mouse)
-            return; // Do not move
+            return;
 
-        // --- Recombine powerup: rush all non-anchor cells toward the anchor ---
         if (client.mergeOverride && client.cells.length > 1) {
-            // Find the cell closest to the mouse cursor each tick (fluid anchor)
             var anchorCell = null;
             var anchorDist = Infinity;
             for (var i = 0; i < client.cells.length; i++) {
@@ -687,20 +606,16 @@ class Server {
                 }
             }
 
-            // World-unit bonus speed added on top of normal speed for non-anchor cells.
-            // Default 150 world units/tick gives a noticeable rush without being instant.
             var bonusSpeed = this.config.recombineBoostSpeed !== undefined
                 ? this.config.recombineBoostSpeed
                 : 150;
 
             if (cell === anchorCell) {
-                // Anchor: normal movement toward mouse cursor
                 var d = client.mouse.difference(cell.position);
                 var dist = d.dist();
-                var move = cell.getSpeed(dist); // 0-1 normalised fraction
+                var move = cell.getSpeed(dist);
                 if (move) cell.position.add(d.product(move));
             } else {
-                // Non-anchor: rush toward anchor position in world units
                 var target = anchorCell ? anchorCell.position : client.mouse;
                 var d = target.difference(cell.position);
                 var dist = d.dist();
@@ -712,31 +627,26 @@ class Server {
                 }
             }
 
-            // mergeOverride cells can always remerge — set flag for canOwnedCellsMerge()
             cell._canRemerge = true;
             return;
         }
-        // --- End recombine ---
 
-        // get movement vector toward mouse
         var d = client.mouse.difference(cell.position);
         var dist = d.dist();
-        var move = cell.getSpeed(dist); // 0-1 normalised speed fraction
+        var move = cell.getSpeed(dist);
 
         var friction = this.config.cellFriction !== undefined ? this.config.cellFriction : 0.82;
 
         if (!move) {
-            // Cell is already at/near the mouse — decay velocity so wave dissipates
             if (cell.vel) {
                 cell.vel.x *= friction;
                 cell.vel.y *= friction;
             }
-            return; // avoid jittering
+            return;
         }
 
 var velScale = this.config.cellVelScale !== undefined ? this.config.cellVelScale : 0.8;
 
-// Snap near-cardinal travel directions so linesplits stay on a clean axis
 var axisSnapThreshold = this.config.axisSnapThreshold !== undefined ? this.config.axisSnapThreshold : 0.08;
 var dirX = d.x;
 var dirY = d.y;
@@ -755,7 +665,6 @@ var stepX = dirX * move;
 var stepY = dirY * move;
 
 if (cell.vel) {
-    // Farther cells accelerate more distinctly so the train stretches cleanly
     var distNorm = Math.min(dist / 2000, 1);
     var blend = 0.5 + distNorm * 0.3;
 
@@ -768,11 +677,8 @@ if (cell.vel) {
 } else {
     cell.position.add(d.product(move));
 }
-        // --- End wave physics ---
 
-        // update remerge
         var time = this.config.playerRecombineTime, base = Math.max(time, cell._size * 0.2) * 25;
-        // instant merging conditions
         if (!time || client.rec || client.mergeOverride) {
             var nearest_dist = 10 ** 9, nearest_id;
             for (var _cell of client.cells) {
@@ -786,19 +692,16 @@ if (cell.vel) {
                 cell.speed = (client.speed ? client.speed : this.config.playerSpeed) * 5;
             }
             cell._canRemerge = cell.boostDistance < 100;
-            return; // instant merge
+            return;
         } else {
             cell.speed = 0;
         }
-        // regular remerge: driven by config playerRecombineTime + size factor
         cell._canRemerge = cell.getAge() >= base;
     }
-    // decay player cells
     updateSizeDecay(cell) {
         var rate = this.config.playerDecayRate, cap = this.config.playerDecayCap;
         if (!rate || cell._size <= this.config.playerMinSize)
             return;
-        // remove size from cell at decay rate
         if (cap && cell._mass > cap)
             rate *= 10;
         var decay = 1 - rate * this.mode.decayMod;
@@ -810,35 +713,28 @@ if (cell.vel) {
             cell.isMoving = false;
             return;
         }
-        // decay boost-speed from distance
-        var speed = cell.boostDistance / 9; // val: 87
-        cell.boostDistance -= speed; // decays from speed
+        var speed = cell.boostDistance / 9;
+        cell.boostDistance -= speed;
         cell.position.add(cell.boostDirection.product(speed));
-        // update boundries
         cell.checkBorder(this.border);
         this.updateNodeQuad(cell);
     }
     autoSplit(cell, client) {
-        // get size limit based off of rec mode
         if (client.rec)
-            var maxSize = 1e9; // increase limit for rec (1 bil)
+            var maxSize = 1e9;
         else
             maxSize = this.config.playerMaxSize;
-        // check size limit
         if (cell._size < maxSize)
             return;
         if (client.cells.length >= this.config.playerAutosplitCells || this.config.mobilePhysics) {
-            // cannot split => just limit
             cell.setSize(maxSize);
         }
         else {
-            // split in random direction
             var angle = Math.random() * 2 * Math.PI;
             this.splitPlayerCell(client, cell, angle, cell._mass * .5);
         }
     }
     updateNodeQuad(node) {
-        // update quad tree
         var item = node.quadItem.bound;
         item.minx = node.position.x - node._size;
         item.miny = node.position.y - node._size;
@@ -847,605 +743,431 @@ if (cell.vel) {
         this.quadTree.remove(node.quadItem);
         this.quadTree.insert(node.quadItem);
     }
-    // Checks cells for collision
     checkCellCollision(cell, check) {
         var p = check.position.difference(cell.position);
-        // create collision manifold
         return {
             cell: cell,
             check: check,
             d: p.dist(),
-            p: p // check - cell position
+            p: p
         };
     }
-    // Checks if collision is rigid body collision
     checkRigidCollision(m) {
         if (!m.cell.owner || !m.check.owner)
             return false;
         if (m.cell.owner != m.check.owner) {
-            // Minions don't collide with their team when the config value is 0
             if (this.mode.haveTeams && m.check.owner.isMi || m.cell.owner.isMi && this.config.minionCollideTeam === 0) {
                 return false;
             } else {
-                // Different owners => same team rigid collision
                 return this.mode.haveTeams &&
                     m.cell.owner.team == m.check.owner.team;
             }
         }
-        // Same owner: use helpers — no magic numbers here
         if (this.isInSplitGrace(m.cell) || this.isInSplitGrace(m.check)) {
-            return false; // still in grace => phase through
+            return false;
         }
-        // Rigid if either cell can't remerge yet (canOwnedCellsMerge would return true => not rigid)
         return !this.canOwnedCellsMerge(m.cell, m.check);
     }
-    // Resolves rigid body collisions with deferred gradual cubic bloom ramp-up.
-    // Bloom window: ~0.5 seconds (13 ticks at 40ms/tick) after grace period.
-    //
-    // WAVE PHYSICS: after the position correction, transfers momentum between
-    // cells via a mass-weighted impulse along the collision normal. This causes
-    // a chain of player cells to propagate a push wave (Newton's cradle /
-    // Cellcraft-style behaviour). The impulse is scaled by bloomScale so
-    // freshly-split cells don't receive violent wave forces during the bloom ramp.
-    //
-    // FREEZE mechanic: if either colliding cell's owner is frozen, skip the
-    // entire resolution so frozen cells phase through each other silently.
-    //
-    // QUAD UPDATE: after correcting positions, both cells' quad-tree bounds are
-    // refreshed immediately. This is essential for wave chaining — without it,
-    // the next cell processed in the same tick's forEach cannot detect the
-    // just-pushed neighbour because the tree still holds its pre-push position.
     resolveRigidCollision(m) {
-        // Frozen cells phase through — no position correction, no impulse
-        if ((m.cell.owner && m.cell.owner.cellsFrozen) ||
-            (m.check.owner && m.check.owner.cellsFrozen)) return;
+        var dx = m.p.x;
+        var dy = m.p.y;
+        var d  = m.d;
+        // Avoid divide-by-zero when two cells are perfectly overlapping
+        if (d < 0.01) {
+            dx = 1;
+            dy = 0;
+            d  = 1;
+        }
+        var push = (m.cell._size + m.check._size - d);
+        if (push <= 0) return;
 
-        if (m.d == 0) return; // coincident cells — skip to avoid division by zero
+        var grace = this.getSplitGraceTime();
+        var bloom = this.getSplitBloomTime();
+        var ageA  = m.cell.getAge();
+        var ageB  = m.check.getAge();
+        var age   = Math.min(ageA, ageB);
 
-        var overlap = m.cell._size + m.check._size - m.d;
-        if (overlap <= 0) return; // not overlapping
+        // Bloom ramp: 0 right after grace ends, 1 when bloom window finishes
+        var bloomProgress = bloom > 0 ? Math.min((age - grace) / bloom, 1) : 1;
+        var ramp = bloomProgress * bloomProgress * bloomProgress; // cubic
+        push *= ramp;
+        if (push <= 0) return;
 
-        // Normalize push by summed sizes for a physically consistent, size-independent force.
-        var totalSize = m.cell._size + m.check._size;
-        // push: fraction of overlap relative to total diameter — bounded [0, 0.5]
-        var push = overlap / totalSize;
+        // Split evenly between the two cells
+        var massA = m.cell._mass  || 1;
+        var massB = m.check._mass || 1;
+        var total = massA + massB;
+        var ratioA = massB / total;
+        var ratioB = massA / total;
 
-        // --- Split bloom: cubic ramp-up of push force after grace period ---
-        var bloomScale = 1.0;
-        var bloomTime = this.getSplitBloomTime();
-        if (bloomTime > 0 && m.cell.owner && m.check.owner && m.cell.owner === m.check.owner) {
-            var grace = this.getSplitGraceTime();
-            var youngestAge = Math.min(m.cell.getAge(), m.check.getAge());
-            var bloomAge = youngestAge - grace; // ticks elapsed since grace ended
-            if (bloomAge < bloomTime) {
-                var t = Math.max(0, bloomAge / bloomTime);
-                bloomScale = t * t * t;
+        var nx = dx / d;
+        var ny = dy / d;
+
+        m.check.position.x += nx * push * ratioA;
+        m.check.position.y += ny * push * ratioA;
+        m.cell.position.x  -= nx * push * ratioB;
+        m.cell.position.y  -= ny * push * ratioB;
+
+        // --- WAVE PHYSICS impulse transfer ---
+        if (m.cell.vel && m.check.vel) {
+            var restitution = this.config.cellRestitution !== undefined ? this.config.cellRestitution : 0.35;
+            var waveBias    = this.config.waveBias       !== undefined ? this.config.waveBias       : 0.6;
+
+            // Relative velocity along the collision normal (check minus cell)
+            var relVx = m.check.vel.x - m.cell.vel.x;
+            var relVy = m.check.vel.y - m.cell.vel.y;
+            var relVn = relVx * nx + relVy * ny;
+
+            // Travel-axis vector (blend of velocity direction and normal)
+            var speed = Math.sqrt(m.cell.vel.x ** 2 + m.cell.vel.y ** 2) || 1;
+            var tx = m.cell.vel.x / speed;
+            var ty = m.cell.vel.y / speed;
+            var bx = nx * (1 - waveBias) + tx * waveBias;
+            var by = ny * (1 - waveBias) + ty * waveBias;
+            var blen = Math.sqrt(bx * bx + by * by) || 1;
+            bx /= blen;  by /= blen;
+
+            var jn = -(1 + restitution) * relVn / (1 / massA + 1 / massB);
+
+            if (jn > 0) {
+                var jx = jn * bx;
+                var jy = jn * by;
+                m.cell.vel.x  -= jx / massA;
+                m.cell.vel.y  -= jy / massA;
+                m.check.vel.x += jx / massB;
+                m.check.vel.y += jy / massB;
             }
         }
-        // --- End bloom ---
-
-        // Mass-weighted impulse: larger cell moves less, smaller cell moves more.
-        var r1 = push * m.check._size / totalSize * bloomScale; // displacement for cell
-        var r2 = push * m.cell._size  / totalSize * bloomScale; // displacement for check
-
-        // Apply extrusion along collision normal (p points from cell -> check)
-        m.cell.position.subtract(m.p.product(r1));
-        m.check.position.add(m.p.product(r2));
-
-        // --- Wave physics: impulse-based velocity transfer ---
-        // Transfers momentum along the collision normal so a chain of cells
-        // propagates the push as a wave tick-by-tick (Newton's cradle).
-        if (m.cell.vel && m.check.vel && m.d > 0) {
-            var restitution = this.config.cellRestitution !== undefined
-                ? this.config.cellRestitution : 0.35;
-
-// Collision normal: unit vector from cell toward check
-var nx = m.p.x / m.d;
-var ny = m.p.y / m.d;
-
-// --- Wave-axis bias: push more along travel direction than sideways ---
-if (m.cell.vel && m.check.vel) {
-    var avgVx = m.cell.vel.x + m.check.vel.x;
-    var avgVy = m.cell.vel.y + m.check.vel.y;
-    var avgLen = Math.sqrt(avgVx * avgVx + avgVy * avgVy);
-
-    if (avgLen > 1.0) {
-        var tx = avgVx / avgLen;
-        var ty = avgVy / avgLen;
-
-        // Snap travel axis for near-cardinal linesplits
-        var axisSnapThreshold = this.config.axisSnapThreshold !== undefined ? this.config.axisSnapThreshold : 0.08;
-        var atx = Math.abs(tx);
-        var aty = Math.abs(ty);
-
-        if (atx > aty && aty < axisSnapThreshold) {
-            tx = tx > 0 ? 1 : -1;
-            ty = 0;
-        } else if (aty > atx && atx < axisSnapThreshold) {
-            tx = 0;
-            ty = ty > 0 ? 1 : -1;
-        }
-
-        var bias = this.config.waveBias !== undefined ? this.config.waveBias : 0.6;
-
-        nx = nx * (1 - bias) + tx * bias;
-        ny = ny * (1 - bias) + ty * bias;
-
-        var nlen = Math.sqrt(nx * nx + ny * ny);
-        if (nlen > 0) {
-            nx /= nlen;
-            ny /= nlen;
-        }
     }
-}
-// --- End wave-axis bias ---
-
-            // Relative velocity along the collision normal
-            var dvx    = m.check.vel.x - m.cell.vel.x;
-            var dvy    = m.check.vel.y - m.cell.vel.y;
-            var relVel = dvx * nx + dvy * ny;
-
-            // Only resolve if cells are approaching each other
-            if (relVel < 0) {
-                var massA = m.cell._size  * m.cell._size;
-                var massB = m.check._size * m.check._size;
-                // Impulse scalar (mass-weighted, scaled by bloom so fresh splits behave)
-                var j = -(1 + restitution) * relVel / (1 / massA + 1 / massB) * bloomScale;
-
-                m.cell.vel.x  -= (j / massA) * nx;
-                m.cell.vel.y  -= (j / massA) * ny;
-                m.check.vel.x += (j / massB) * nx;
-                m.check.vel.y += (j / massB) * ny;
-            }
-        }
-        // --- End wave physics ---
-
-        // Refresh quad-tree bounds for both cells immediately after the position
-        // correction. This allows any subsequent cell in the same tick's forEach
-        // to detect the newly-pushed neighbour and continue the wave chain.
-        if (!m.cell.isRemoved && m.cell.quadItem)
-            this.updateNodeQuad(m.cell);
-        if (!m.check.isRemoved && m.check.quadItem)
-            this.updateNodeQuad(m.check);
-    }
-    // Resolves non-rigid body collision (eat/merge)
     resolveCollision(m) {
-        var cell = m.cell;
+        var cell  = m.cell;
         var check = m.check;
+        if (cell.isRemoved || check.isRemoved) return;
 
-        // FIX: isRemoved guard MUST come before the growth-pellet branches.
-        if (cell.isRemoved || check.isRemoved)
+        // ── Coin pickup: a player/minion cell overlaps a Coin ──────────────────
+        // The larger-eats-smaller rule is bypassed entirely for coins: any
+        // player cell that touches a coin collects it regardless of size.
+        if (check.type === 6 && (cell.type === 0 || cell.owner)) {
+            // Only collect if the cells are overlapping (centres within sum of radii)
+            if (m.d < cell._size + check._size) {
+                this.removeNode(check);
+                check.onEaten(cell);
+            }
             return;
+        }
+        if (cell.type === 6 && (check.type === 0 || check.owner)) {
+            if (m.d < check._size + cell._size) {
+                this.removeNode(cell);
+                cell.onEaten(check);
+            }
+            return;
+        }
+        // ── End coin pickup ────────────────────────────────────────────────────
 
-        if (cell._size > check._size) {
-            cell = m.check;
+        if (check._size > cell._size) {
+            cell  = m.check;
             check = m.cell;
         }
-
-        // FIX: second isRemoved guard after the size-swap.
-        if (cell.isRemoved || check.isRemoved)
-            return;
-
-        // --- Growth pellet (type 5): any PlayerCell eats it unconditionally ---
-        if (cell.type === 5 && check.type === 0) {
-            if (m.d < check._size) {
-                check.onEat(cell);
-                cell.onEaten(check);
-                cell.killer = check;
-                this.removeNode(cell);
-            }
-            return;
-        }
-        if (check.type === 5 && cell.type === 0) {
-            if (m.d < cell._size) {
-                cell.onEat(check);
-                check.onEaten(cell);
-                check.killer = cell;
-                this.removeNode(check);
-            }
-            return;
-        }
-        // --- End growth pellet ---
-
-        // check eating distance
-        check.div = this.config.mobilePhysics ? 20 : 3;
-        if (m.d >= check._size - cell._size / check.div) {
-            return; // too far => can't eat
-        }
-        // Same-owner collision: use canOwnedCellsMerge() — replaces hardcoded 13-tick check
-        if (cell.owner && cell.owner == check.owner) {
-            if (!this.canOwnedCellsMerge(cell, check)) return; // not ready to merge
-        }
-        else if (check._size < cell._size * 1.15 || !check.canEat(cell))
-            return; // Cannot eat or cell refuses to be eaten
-        // Consume effect
-        check.onEat(cell);
-        cell.onEaten(check);
-        cell.killer = check;
-        // Remove cell
-        this.removeNode(cell);
-        // Clear mergeOverride once all cells have merged into one
-        if (cell.owner && cell.owner.cells.length <= 1) {
-            cell.owner.mergeOverride = false;
-        }
+        // Eat condition: larger must cover smaller's centre (dist < larger._size)
+        if (m.d >= cell._size) return;
+        // Larger cell must be big enough to eat (10% mass rule)
+        if (cell._size < check._size * 1.14) return;
+        if (!cell.canEat(check)) return;
+        // Remove prey
+        cell.onEat(check);
+        check.onEaten(cell);
+        this.removeNode(check);
     }
-    splitPlayerCell(client, parent, angle, mass) {
+    splitPlayerCell(client, cell, angle, mass) {
         var size = Math.sqrt(mass * 100);
-        var size1 = Math.sqrt(parent.radius - size * size);
-        // Too small to split
-        if (!size1 || size1 < this.config.playerMinSize)
+        var size1 = Math.sqrt(cell._mass * 100 - mass * 100);
+        // Size check
+        if (size < this.config.playerMinSplitSize || size1 < this.config.playerMinSplitSize) {
             return;
-        // Remove size from parent cell
-        parent.setSize(size1);
-        // Create cell and add it to node list
-        var newCell = new Entity.PlayerCell(this, client, parent.position, size);
-        newCell.setBoost(this.config.splitVelocity * Math.pow(size, 0.0122), angle);
-        this.addNode(newCell);
-    }
-    randomPos() {
-        return new Vec2(this.border.minx + this.border.width * Math.random(),
-            this.border.miny + this.border.height * Math.random());
-    }
-    onField(position) {
-        return this.border.minx <= position.x && position.x <= this.border.minx + this.border.width
-            && this.border.miny <= position.y && position.y <= this.border.miny + this.border.height;
-    }
-    spawnFood() {
-        var cell = new Entity.Food(this, null, this.randomPos(), this.config.foodMinSize);
-        if (this.config.foodMassGrow) {
-            var maxGrow = this.config.foodMaxSize - cell._size;
-            cell.setSize(cell._size += maxGrow * Math.random());
         }
-        cell.color = this.getRandomColor();
-        this.addNode(cell);
+        // Split
+        var newCell = new Entity.PlayerCell(this, client, cell.position, size);
+        newCell.setBoost(this.config.splitVelocity * Math.pow(size / this.config.playerMaxSize, 0.5), angle);
+        this.addNode(newCell);
+        // Reduce size of original
+        cell.setSize(size1);
     }
-    spawnVirus(position = this.randomPos(), forced = false) {
-        var virus = new Entity.Virus(this, null, position, this.config.virusMinSize, forced);
-        if (!this.onField(position)) return;
-        if (forced || !this.willCollide(virus)) {
+    spawnCells(virusAmount, foodAmount) {
+        for (var i = 0; i < foodAmount; i++) {
+            var food = new Entity.Food(this, null, this.getRandomPosition(), this.config.foodMinSize);
+            if (this.config.foodMassGrow) {
+                var maxGrow = this.config.foodMaxSize - food._size;
+                food.setSize(food._size += maxGrow * Math.random());
+            }
+            food.color = this.getRandomColor();
+            this.addNode(food);
+        }
+        for (var i = 0; i < virusAmount; i++) {
+            var virus = new Entity.Virus(this, null, this.getRandomPosition(), this.config.virusMinSize);
             this.addNode(virus);
         }
     }
-    // Spawns a GrowthPellet at the player's cursor position.
-    spawnGrowthPellet(position, owner) {
-        var cap = this.config.growthPelletMaxAmount || 3;
-        var liveCount = 0;
-        for (var i = 0; i < this.nodesGrowthPellets.length; i++) {
-            var p = this.nodesGrowthPellets[i];
-            if (!p.isRemoved && p.spawner === owner) liveCount++;
-        }
-        if (liveCount >= cap) return null;
-
-        var x = Math.max(this.border.minx, Math.min(this.border.minx + this.border.width,  position.x));
-        var y = Math.max(this.border.miny, Math.min(this.border.miny + this.border.height, position.y));
-        var safePos = new Vec2(x, y);
-        var pellet = new Entity.GrowthPellet(this, owner, safePos, this.config.growthPelletSize);
-        this.addNode(pellet);
-        return pellet;
+    /**
+     * Spawns a single Coin at a random map position if the current live coin
+     * count is below config.coinAmount. Called both from onHttpServerOpen
+     * (batch initial spawn) and from Coin.onRemove (auto-respawn on pickup).
+     *
+     * Fix: do NOT push into nodesCoins here. Coin.onAdd() handles that.
+     */
+    spawnCoin() {
+        var maxCoins = this.config.coinAmount || 50;
+        if (this.nodesCoins.length >= maxCoins) return;
+        var position = this.getRandomPosition();
+        var size = this.config.coinSize || 30;
+        var coin = new Entity.Coin(this, null, position, size);
+        this.addNode(coin); // onAdd() pushes into nodesCoins
     }
-    spawnCells(virusCount, foodCount) {
-        for (var i = 0; i < foodCount; i++) {
-            this.spawnFood();
-        }
-        for (var ii = 0; ii < virusCount; ii++) {
-            this.spawnVirus();
-        }
-    }
-    spawnPlayer(player, pos) {
-        if (this.disableSpawn)
-            return; // Not allowed to spawn!
-        // Check for special starting size
+    spawnPlayer(client, pos) {
+        if (this.disableSpawn) return; // not allowed to spawn
+        // get spawn pos
+        var spawnPos = pos ? pos : this.mode.getSpawnPos(this);
+        // get spawn size
         var size = this.config.playerStartSize;
-        if (player.spawnmass)
-            size = player.spawnmass;
-        // Check if can spawn from ejected mass
-        var index = ~~(this.nodesEjected.length * Math.random());
-        var eject = this.nodesEjected[index]; // Randomly selected
-        if (Math.random() <= this.config.ejectSpawnPercent &&
-            eject && eject.boostDistance < 1) {
-            // Spawn from ejected mass
-            pos = eject.position.clone();
-            player.color = eject.color;
-            size = Math.max(size, eject._size * 1.15);
+        if (this.config.playerStartMass) {
+            size = Math.sqrt(this.config.playerStartMass * 100);
         }
-        // Spawn player safely (do not check minions)
-        var cell = new Entity.PlayerCell(this, player, pos, size);
-        if (this.willCollide(cell) && !player.isMi)
-            pos = this.randomPos(); // Not safe => retry
+        // Create player cell
+        var cell = new Entity.PlayerCell(this, client, spawnPos, size);
         this.addNode(cell);
         // Set initial mouse coords
-        player.mouse.assign(pos);
-    }
-    willCollide(cell) {
-        const x = cell.position.x;
-        const y = cell.position.y;
-        const r = cell._size;
-        const bound = new Quad(x - r, y - r, x + r, y + r);
-        return this.quadTree.find(bound, n => n.type == 0);
-    }
-    splitCells(client) {
-        // Split cell order decided by cell age
-        var cellToSplit = [];
-        for (var i = 0; i < client.cells.length; i++)
-            cellToSplit.push(client.cells[i]);
-        // Split split-able cells
-        cellToSplit.forEach((cell) => {
-            var d = client.mouse.difference(cell.position);
-            if (d.distSquared() < 1) {
-                d.x = 1, d.y = 0;
-            }
-            if (cell._size < this.config.playerMinSplitSize)
-                return; // cannot split
-            // Get maximum cells for rec mode
-            if (client.rec)
-                var max = 200; // rec limit
-            else
-                max = this.config.playerMaxCells;
-            if (client.cells.length >= max)
-                return;
-            // Now split player cells
-            this.splitPlayerCell(client, cell, d.angle(), cell._mass * .5);
-        });
+        client.mouse = new Vec2(spawnPos.x, spawnPos.y);
     }
     canEjectMass(client) {
         if (client.lastEject === null) {
-            // first eject
             client.lastEject = this.ticks;
             return true;
         }
         var dt = this.ticks - client.lastEject;
         if (dt < this.config.ejectCooldown) {
-            // reject (cooldown)
             return false;
         }
         client.lastEject = this.ticks;
         return true;
     }
+    canUseVirus(client) {
+        if (!this.config.powerupVirus) return false;
+        var delay = this.config.powerupVirusDelay * 25;
+        if (!client.lastVirusUsed) {
+            client.lastVirusUsed = 0;
+        }
+        if (this.config.powerupVirusEvery) {
+            return (this.ticks - client.lastVirusUsed) > delay;
+        } else {
+            return (this.ticks - (client.lastVirusUsed || 0)) > delay;
+        }
+    }
+    canUseGrowth(client) {
+        if (!this.config.powerupGrowth) return false;
+        var delay = this.config.powerupGrowthDelay * 25;
+        if (!delay) return false; // safety: zero delay is forbidden
+        if (!client.lastGrowthUsed) {
+            client.lastGrowthUsed = 0;
+        }
+        if (this.config.powerupGrowthEvery) {
+            return (this.ticks - client.lastGrowthUsed) > delay;
+        } else {
+            return (this.ticks - (client.lastGrowthUsed || 0)) > delay;
+        }
+    }
     ejectMass(client) {
-        if (!this.canEjectMass(client) || client.cellsFrozen)
-            return;
+        if (!this.canEjectMass(client)) return;
         for (var i = 0; i < client.cells.length; i++) {
             var cell = client.cells[i];
-            if (cell._size < this.config.playerMinEjectSize) continue;
-            var loss = this.config.ejectSizeLoss;
-            var newSize = cell.radius - loss * loss;
-            var minSize = this.config.playerMinSize;
-            if (newSize < 0 || newSize < minSize * minSize)
-                continue; // Too small to eject
-            cell.setSize(Math.sqrt(newSize));
-
-            var d = client.mouse.difference(cell.position);
-            var sq = d.dist();
-            d.x = sq > 1 ? d.x / sq : 1;
-            d.y = sq > 1 ? d.y / sq : 0;
-
-            // Get starting position
-            var pos = cell.position.sum(d.product(cell._size));
-            var angle = d.angle() + (Math.random() * .6) - .3;
-            // Create cell and add it to node list
-            var ejected;
-            if (this.config.ejectVirus) {
-                ejected = new Entity.Virus(this, null, pos, this.config.ejectSize);
-            } else {
-                ejected = new Entity.EjectedMass(this, null, pos, this.config.ejectSize);
-            }
+            if (!cell)
+                continue;
+            if (cell._size < this.config.playerMinEjectSize)
+                continue;
+            var angle = cell.owner.mouse.angle(cell.position);
+            if (isNaN(angle)) angle = Math.PI / 2;
+            // Remove mass from parent cell
+            var newSize = Math.sqrt(cell._size * cell._size - this.config.ejectSizeLoss * this.config.ejectSizeLoss);
+            cell.setSize(Math.max(newSize, this.config.playerMinSize));
+            // Eject
+            var ejected = new Entity.EjectedMass(this, null, cell.position, this.config.ejectSize);
             ejected.color = cell.color;
             ejected.setBoost(this.config.ejectVelocity, angle);
             this.addNode(ejected);
         }
     }
-    shootVirus(parent, angle) {
-        // Create virus and add it to node list
-        var pos = parent.position.clone();
-        var newVirus = new Entity.Virus(this, null, pos, this.config.virusMinSize);
-        newVirus.setBoost(this.config.virusVelocity, angle);
-        this.addNode(newVirus);
+    shootVirus(client) {
+        if (!this.canUseVirus(client)) return;
+        var cells = client.cells;
+        var cell = cells[cells.length - 1];
+        if (!cell) return;
+        var angle = cell.owner.mouse.angle(cell.position);
+        if (isNaN(angle)) angle = Math.PI / 2;
+        var virus = new Entity.Virus(this, null, cell.position, this.config.virusMinSize);
+        virus.setBoost(this.config.virusVelocity, angle);
+        client.lastVirusUsed = this.ticks;
+        this.addNode(virus);
+    }
+    shootGrowthPellet(client) {
+        if (!this.canUseGrowth(client)) return;
+        var maxAmount = this.config.growthPelletMaxAmount || 3;
+        var liveCount = 0;
+        for (var i = 0; i < this.nodesGrowthPellets.length; i++) {
+            if (this.nodesGrowthPellets[i].owner === client) liveCount++;
+        }
+        if (liveCount >= maxAmount) return;
+        var cells = client.cells;
+        var cell = cells[cells.length - 1];
+        if (!cell) return;
+        var mousePos = client.mouse;
+        if (!mousePos) return;
+        var pellet = new Entity.GrowthPellet(
+            this,
+            client,
+            new Vec2(mousePos.x, mousePos.y),
+            this.config.growthPelletSize || 80
+        );
+        client.lastGrowthUsed = this.ticks;
+        this.addNode(pellet);
+    }
+    getRandomPosition() {
+        return new Vec2(
+            Math.floor(this.border.minx + this.border.width  * Math.random()),
+            Math.floor(this.border.miny + this.border.height * Math.random())
+        );
+    }
+    getRandomSpawn(size) {
+        var pos, unsafe;
+        var attempts = 0;
+        do {
+            pos = this.getRandomPosition();
+            unsafe = this.getSafeSpawnPos(size);
+            attempts++;
+        } while (unsafe && attempts < 10);
+        return pos;
+    }
+    getSafeSpawnPos(size) {
+        return false;
+    }
+    getGrowthPos(client) {
+        var minx = this.border.minx;
+        var miny = this.border.miny;
+        var maxx = this.border.maxx;
+        var maxy = this.border.maxy;
+        var margin = 200;
+        return new Vec2(
+            Math.floor(minx + margin + (maxx - minx - 2 * margin) * Math.random()),
+            Math.floor(miny + margin + (maxy - miny - 2 * margin) * Math.random())
+        );
     }
     loadFiles() {
-        const fs = require("fs")
-        // Load bad words
-        var fileNameBadWords = this.srcFiles + '/badwords.txt';
-        try {
-            if (!fs.existsSync(fileNameBadWords)) {
-                Logger.warn(fileNameBadWords + " not found");
-            }
-            else {
-                var words = fs.readFileSync(fileNameBadWords, 'utf-8');
-                words = words.split(/[\r\n]+/);
-                words = words.map(function (arg) {
-                    return " " + arg.trim().toLowerCase() + " "; // Formatting
-                });
-                words = words.filter(function (arg) {
-                    return arg.length > 2;
-                });
-                this.badWords = words;
-                Logger.info(this.badWords.length + " bad words loaded");
-            }
-        }
-        catch (err) {
-            Logger.error(err.stack);
-            Logger.error("Failed to load " + fileNameBadWords + ": " + err.message);
-        }
-        // Load user list
-        var UserRoleEnum = require(this.srcFiles + '/enum/UserRoleEnum');
-        var fileNameUsers = this.srcFiles + '/enum/userRoles.json';
-        try {
-            this.userList = [];
-            if (!fs.existsSync(fileNameUsers)) {
-                Logger.warn(fileNameUsers + " is missing.");
-                return;
-            }
-            var usersJson = fs.readFileSync(fileNameUsers, 'utf-8');
-            var list = JSON.parse(usersJson.trim());
-            for (var i = 0; i < list.length;) {
-                var item = list[i];
-                if (!item.hasOwnProperty("ip") ||
-                    !item.hasOwnProperty("password") ||
-                    !item.hasOwnProperty("role") ||
-                    !item.hasOwnProperty("name")) {
-                    list.splice(i, 1);
-                    continue;
-                }
-                if (!item.password || !item.password.trim()) {
-                    Logger.warn("User account \"" + item.name + "\" disabled");
-                    list.splice(i, 1);
-                    continue;
-                }
-                if (item.ip)
-                    item.ip = item.ip.trim();
-                item.password = item.password.trim();
-                if (!UserRoleEnum.hasOwnProperty(item.role)) {
-                    Logger.warn("Unknown user role: " + item.role);
-                    item.role = UserRoleEnum.USER;
-                }
-                else {
-                    item.role = UserRoleEnum[item.role];
-                }
-                item.name = (item.name || "").trim();
-                i++;
-            }
-            this.userList = list;
-            Logger.info(this.userList.length + " user records loaded.");
-        }
-        catch (err) {
-            Logger.error(err.stack);
-            Logger.error("Failed to load " + fileNameUsers + ": " + err.message);
-        }
-        // Load ip ban list
+        var fs = require("fs");
+        // Load the IP ban list
         var fileNameIpBan = this.srcFiles + '/ipbanlist.txt';
-        try {
-            if (fs.existsSync(fileNameIpBan)) {
-                this.ipBanList = fs.readFileSync(fileNameIpBan, "utf8").split(/[\r\n]+/).filter(function (x) {
-                    return x != ''; // filter empty lines
+        if (fs.existsSync(fileNameIpBan)) {
+            // Load and input the contents of the ipban file
+            this.ipBanList = fs.readFileSync(fileNameIpBan, 'utf8').split(/[\r\n]+/);
+        }
+        else {
+            Logger.warn("Couldn't find IP ban list: " + fileNameIpBan);
+        }
+        // Load the user list
+        var fileNameUser = this.srcFiles + '/userlist.txt';
+        if (fs.existsSync(fileNameUser)) {
+            var usersRaw = fs.readFileSync(fileNameUser, 'utf8');
+            usersRaw = usersRaw.split(/[\r\n]+/);
+            for (var i = 0; i < usersRaw.length; ) {
+                var userRaw = usersRaw[i++];
+                if (userRaw.indexOf('/') == 0 || !userRaw.length)
+                    continue;
+                userRaw = userRaw.split(';');
+                if (userRaw.length < 4)
+                    continue;
+                this.userList.push({
+                    ip: userRaw[0],
+                    password: userRaw[1],
+                    role: userRaw[2],
+                    name: userRaw[3]
                 });
-                Logger.info(this.ipBanList.length + " IP ban records loaded.");
-            }
-            else {
-                Logger.warn(fileNameIpBan + " is missing.");
             }
         }
-        catch (err) {
-            Logger.error(err.stack);
-            Logger.error("Failed to load " + fileNameIpBan + ": " + err.message);
+        else {
+            Logger.warn("Couldn't find user list: " + fileNameUser);
         }
-        // Convert config settings
-        this.config.serverRestart = this.config.serverRestart === 0 ? 1e999 : this.config.serverRestart * 1500;
+        // Load bad words list
+        var fileNameBadWords = this.srcFiles + '/badwords.txt';
+        if (fs.existsSync(fileNameBadWords)) {
+            var badWordsRaw = fs.readFileSync(fileNameBadWords, 'utf8');
+            badWordsRaw = badWordsRaw.split(/[\r\n]+/);
+            for (var i = 0; i < badWordsRaw.length; ) {
+                var wordRaw = badWordsRaw[i++].trim();
+                if (!wordRaw.length)
+                    continue;
+                this.badWords.push(wordRaw.toLowerCase());
+            }
+        }
+        else {
+            Logger.warn("Couldn't find bad words list: " + fileNameBadWords);
+        }
     }
     startStatsServer(port) {
-        // Create stats
-        this.getStats();
-        // Show stats
-        this.httpServer = http.createServer(function (req, res) {
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            res.writeHead(200);
-            res.end(this.stats);
-        }.bind(this));
-        this.httpServer.on('error', function (err) {
-            Logger.error("Failed to start stats server: " + err.message);
-        });
-        var getStatsBind = this.getStats.bind(this);
-        this.httpServer.listen(port, function () {
-            // Stats server
-            Logger.info("Started stats server on port " + port);
-            setInterval(getStatsBind, this.config.serverStatsUpdate * 1000);
-        }.bind(this));
+        // Create stats server
+        this.statsServer = http.createServer();
+        this.statsServer.on('request', this.onStatsServerRequest.bind(this));
+        this.statsServer.listen(port, this.config.serverBind, this.onStatsServerOpen.bind(this));
     }
-    getStats() {
-        // Get server statistics
-        let alivePlayers = 0;
-        let spectatePlayers = 0;
-        let bots = 0;
-        let minions = 0;
-        for (const client of this.clients) {
-            if (!client || !client.isConnected) continue;
-            if (client.playerTracker.isBot) ++bots;
-            else if (client.playerTracker.isMi) ++minions;
-            else if (client.playerTracker.cells.length) ++alivePlayers;
-            else ++spectatePlayers;
-        }
-        var s = {
-            'server_name': this.config.serverName,
-            'server_chat': this.config.serverChat ? "true" : "false",
-            'border_width': this.border.width,
-            'border_height': this.border.height,
-            'gamemode': this.mode.name,
-            'max_players': this.config.serverMaxConnections,
-            'current_players': alivePlayers + spectatePlayers,
-            'alive': alivePlayers,
-            'spectators': spectatePlayers,
-            'bots': bots,
-            'minions': minions,
-            'update_time': this.updateTimeAvg.toFixed(3),
-            'uptime': Math.round((this.stepDateTime - this.startTime) / 1000 / 60),
-            'start_time': this.startTime,
-            'stats_time': Date.now()
-        };
-        this.statsObj = s;
-        this.stats = JSON.stringify(s);
-    }
-    // Pings the server tracker, should be called every 30 seconds
-    pingServerTracker() {
-        var os = require('os');
-        var totalPlayers = 0;
-        var alivePlayers = 0;
-        var spectatePlayers = 0;
-        var robotPlayers = 0;
-        for (var i = 0, len = this.clients.length; i < len; i++) {
-            var socket = this.clients[i];
-            if (!socket || socket.isConnected == false)
-                continue;
-            if (socket.isConnected == null) {
-                robotPlayers++;
-            }
-            else {
-                totalPlayers++;
-                if (socket.playerTracker.cells.length)
-                    alivePlayers++;
-                else
-                    spectatePlayers++;
-            }
-        }
-        var data = 'current_players=' + totalPlayers +
-            '&alive=' + alivePlayers +
-            '&spectators=' + spectatePlayers +
-            '&max_players=' + this.config.serverMaxConnections +
-            '&sport=' + this.config.serverPort +
-            '&gamemode=[**] ' + this.mode.name +
-            '&agario=true' +
-            '&name=Unnamed Server' +
-            '&opp=' + os.platform() + ' ' + os.arch() +
-            '&uptime=' + process.uptime() +
-            '&version=MultiOgarII-Continued ' + this.version +
-            '&start_time=' + this.startTime;
-        trackerRequest({
-            host: 'ogar.mivabe.nl',
-            port: 80,
-            path: '/master',
-            method: 'POST'
-        }, 'application/x-www-form-urlencoded', data);
-    }
-};
-
-function trackerRequest(options, type, body) {
-    if (options.headers == null) options.headers = {};
-    options.headers['user-agent'] = 'MultiOgarII-Continued' + this.version;
-    options.headers['content-type'] = type;
-    options.headers['content-length'] = body == null ? 0 : Buffer.byteLength(body, 'utf8');
-    var req = http.request(options, function (res) {
-        if (res.statusCode != 200) {
-            Logger.writeError("[Tracker][" + options.host + "]: statusCode = " + res.statusCode);
+    onStatsServerRequest(req, res) {
+        // Check request method and path
+        if (req.method != 'GET' || req.url != '/') {
+            // Bad request, send error code
+            res.writeHead(400);
+            res.end();
             return;
         }
-        res.setEncoding('utf8');
-    });
-    req.on('error', function (err) {
-        Logger.writeError("[Tracker][" + options.host + "]: " + err);
-    });
-    req.shouldKeepAlive = false;
-    req.on('close', function () {
-        req.destroy();
-    });
-    req.write(body);
-    req.end();
+        // Get server statistics
+        var stats = {
+            'name': this.config.serverName,
+            'players': this.socketCount,
+            'limit': this.config.serverMaxConnections,
+            'kills': (this.config.serverBots ? this.config.serverBots : 0),
+            'bots': (this.config.serverBots ? this.config.serverBots : 0),
+            'mass': 0,
+            'uptime': Math.round((Date.now() - this.startTime) / 1000 / 60),
+            'version': this.version,
+            'update': this.updateTimeAvg
+        };
+        for (var i = 0; i < this.clients.length; i++) {
+            if (this.clients[i].playerTracker.cells.length <= 0)
+                continue;
+            stats['mass'] += Math.round(this.clients[i].playerTracker._score);
+        }
+        res.writeHead(200);
+        res.end(JSON.stringify(stats));
+    }
+    onStatsServerOpen() {
+        Logger.info("Stats server started, on port " + this.config.serverStatsPort);
+    }
+    pingServerTracker() {
+        // Get server information
+        var totalPlayers = 0;
+        var maxPlayers = Math.min(this.clients.length, 100);
+        var s = this.clients.valueOf();
+        s.sort(function (a, b) {
+            return b.playerTracker._score - a.playerTracker._score;
+        });
+        var topPlayers = [];
+        for (var i = 0; i < maxPlayers && i < 10; i++) {
+            if (!s[i].playerTracker.cells.length)
+                continue;
+            topPlayers.push({
+                id: s[i].playerTracker.pID,
+                name: s[i].playerTracker._name
+            });
+        }
+        for (var i = 0; i < this.clients.length; i++) {
+            if (!this.clients[i].isConnected)
+                continue;
+            totalPlayers++;
+        }
+    }
 }
+
 module.exports = Server;
