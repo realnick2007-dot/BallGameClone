@@ -208,8 +208,8 @@ module.exports = Object.seal({
 "playerMaxNickLength": 15,
 "playerDisconnectTime": -1,
 "splitVelocity": 1024,
-"splitGraceTime": 5,
-"splitBloomTime": 9,
+"splitGraceTime": 8,
+"splitBloomTime": 8,
 
 // [WAVE PHYSICS]
 // cellFriction: Velocity multiplier applied to each player cell every tick.
@@ -244,7 +244,7 @@ module.exports = Object.seal({
 "serverMinions": 0,
 "defaultName": "minion",
 "minionsOnLeaderboard": 0,
-    
+
 // [WAVE PHYSICS EXTRA]
 // waveBias: 0 = vanilla normal-based push, 1 = full travel-axis push.
 "waveBias": 0.6,
