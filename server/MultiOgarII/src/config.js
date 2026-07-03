@@ -31,7 +31,7 @@ module.exports = Object.seal({
 // serverGamemode: Gamemodes: 0: FFA, 1: Teams, 2: Experimental, 3: Rainbow
 // serverBots: Number of player bots to spawn (Experimental)
 // serverViewBase: Base view distance of players. Warning: high values may cause lag! Min value is 1920x1080
-// serverMinScale: Minimum viewbox scale for player (low value leads to lags due to large visible area for big cell)
+// serverMinScale: Minimum viewbox scale for player (low value leads to lag due to large visible area for big cell)
 // serverSpectatorScale: Scale (field of view) used for free roam spectators (low value leads to lag, vanilla: 0.4, old vanilla: 0.25)
 // serverStatsPort: Port for the stats server. Having a negative number will disable the stats server.
 // serverStatsUpdate: Update interval of server stats in seconds
@@ -135,6 +135,14 @@ module.exports = Object.seal({
 "foodMaxSize": 20,
 "foodAmount": 700 * 5,
 "foodMassGrow": 1,
+
+// [COINS]
+// coinAmount: Number of coins to keep alive on the map at all times.
+// coinSize: Radius of each coin (visual size on the client).
+// coinCurrencyValue: Amount of currency awarded to the player who picks up a coin.
+"coinAmount": 50,
+"coinSize": 30,
+"coinCurrencyValue": 10,
 
 // [VIRUSES]
 // virusMinSize: Minimum virus size. (vanilla: mass: val*val/100: 100 mass)
