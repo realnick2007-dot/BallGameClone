@@ -167,12 +167,11 @@ class Server {
             Logger.info("Added " + this.config.serverBots + " player bots");
         }
         this.spawnCells(this.config.virusAmount, this.config.foodAmount);
-		
+        // Spawn initial coins
+        for (var i = 0; i < this.config.coinAmount; i++) {
+            this.spawnCoin();
+        }
     }
-	// Spawn initial coins
-for (var i = 0; i < this.config.coinAmount; i++) {
-    this.spawnCoin();
-}
     addNode(node) {
         // Add to quad-tree & node list
         var x = node.position.x;
@@ -1053,24 +1052,26 @@ if (m.cell.vel && m.check.vel) {
             return;
         }
         // --- End growth pellet ---
-		// --- Coin (type 6): any PlayerCell picks it up ---
-if (cell.type === 6 && check.type === 0) {
-    if (m.d < check._size) {
-        cell.onEaten(check);
-        cell.killer = check;
-        this.removeNode(cell);
-    }
-    return;
-}
-if (check.type === 6 && cell.type === 0) {
-    if (m.d < cell._size) {
-        check.onEaten(cell);
-        check.killer = cell;
-        this.removeNode(check);
-    }
-    return;
-}
-// --- End coin ---
+
+        // --- Coin (type 6): any PlayerCell picks it up ---
+        if (cell.type === 6 && check.type === 0) {
+            if (m.d < check._size) {
+                cell.onEaten(check);
+                cell.killer = check;
+                this.removeNode(cell);
+            }
+            return;
+        }
+        if (check.type === 6 && cell.type === 0) {
+            if (m.d < cell._size) {
+                check.onEaten(cell);
+                check.killer = cell;
+                this.removeNode(check);
+            }
+            return;
+        }
+        // --- End coin ---
+
         // check eating distance
         check.div = this.config.mobilePhysics ? 20 : 3;
         if (m.d >= check._size - cell._size / check.div) {
@@ -1123,13 +1124,13 @@ if (check.type === 6 && cell.type === 0) {
         cell.color = this.getRandomColor();
         this.addNode(cell);
     }
-	spawnCoin() {
-    // Only spawn if we're below the target count
-    if (this.nodesCoins.length >= this.config.coinAmount) return;
-    var coin = new Entity.Coin(this, null, this.randomPos(), this.config.coinSize);
-    this.addNode(coin);
-    // NOTE: onAdd() in Coin.js pushes to nodesCoins — do NOT push here again.
-}
+    spawnCoin() {
+        // Only spawn if we're below the target count
+        if (this.nodesCoins.length >= this.config.coinAmount) return;
+        var coin = new Entity.Coin(this, null, this.randomPos(), this.config.coinSize);
+        this.addNode(coin);
+        // NOTE: onAdd() in Coin.js pushes to nodesCoins — do NOT push here again.
+    }
     spawnVirus(position = this.randomPos(), forced = false) {
         var virus = new Entity.Virus(this, null, position, this.config.virusMinSize, forced);
         if (!this.onField(position)) return;
