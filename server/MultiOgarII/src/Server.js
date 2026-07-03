@@ -734,25 +734,40 @@ class Server {
             return; // avoid jittering
         }
 
-        // --- Wave physics: blend mouse-step into persistent velocity ---
-        // stepX/Y is the raw displacement the old code would have applied directly.
-        // We instead blend it into cell.vel with 50/50 smoothing * cellVelScale,
-        // then apply vel to position and decay for the next tick.
-        var velScale = this.config.cellVelScale !== undefined ? this.config.cellVelScale : 0.8;
-        var stepX = d.x * move;
-        var stepY = d.y * move;
+var velScale = this.config.cellVelScale !== undefined ? this.config.cellVelScale : 0.8;
 
-        if (cell.vel) {
-            cell.vel.x = cell.vel.x * 0.5 + stepX * velScale;
-            cell.vel.y = cell.vel.y * 0.5 + stepY * velScale;
-            cell.position.x += cell.vel.x;
-            cell.position.y += cell.vel.y;
-            cell.vel.x *= friction;
-            cell.vel.y *= friction;
-        } else {
-            // Fallback for any cell that somehow lacks vel (non-player path)
-            cell.position.add(d.product(move));
-        }
+// Snap near-cardinal travel directions so linesplits stay on a clean axis
+var axisSnapThreshold = this.config.axisSnapThreshold !== undefined ? this.config.axisSnapThreshold : 0.08;
+var dirX = d.x;
+var dirY = d.y;
+var absX = Math.abs(dirX);
+var absY = Math.abs(dirY);
+
+if (absX > absY && absY < axisSnapThreshold) {
+    dirX = dirX > 0 ? 1 : -1;
+    dirY = 0;
+} else if (absY > absX && absX < axisSnapThreshold) {
+    dirX = 0;
+    dirY = dirY > 0 ? 1 : -1;
+}
+
+var stepX = dirX * move;
+var stepY = dirY * move;
+
+if (cell.vel) {
+    // Farther cells accelerate more distinctly so the train stretches cleanly
+    var distNorm = Math.min(dist / 2000, 1);
+    var blend = 0.5 + distNorm * 0.3;
+
+    cell.vel.x = cell.vel.x * (1 - blend) + stepX * velScale * blend;
+    cell.vel.y = cell.vel.y * (1 - blend) + stepY * velScale * blend;
+    cell.position.x += cell.vel.x;
+    cell.position.y += cell.vel.y;
+    cell.vel.x *= friction;
+    cell.vel.y *= friction;
+} else {
+    cell.position.add(d.product(move));
+}
         // --- End wave physics ---
 
         // update remerge
@@ -924,9 +939,46 @@ class Server {
             var restitution = this.config.cellRestitution !== undefined
                 ? this.config.cellRestitution : 0.35;
 
-            // Collision normal: unit vector from cell toward check
-            var nx = m.p.x / m.d;
-            var ny = m.p.y / m.d;
+// Collision normal: unit vector from cell toward check
+var nx = m.p.x / m.d;
+var ny = m.p.y / m.d;
+
+// --- Wave-axis bias: push more along travel direction than sideways ---
+if (m.cell.vel && m.check.vel) {
+    var avgVx = m.cell.vel.x + m.check.vel.x;
+    var avgVy = m.cell.vel.y + m.check.vel.y;
+    var avgLen = Math.sqrt(avgVx * avgVx + avgVy * avgVy);
+
+    if (avgLen > 1.0) {
+        var tx = avgVx / avgLen;
+        var ty = avgVy / avgLen;
+
+        // Snap travel axis for near-cardinal linesplits
+        var axisSnapThreshold = this.config.axisSnapThreshold !== undefined ? this.config.axisSnapThreshold : 0.08;
+        var atx = Math.abs(tx);
+        var aty = Math.abs(ty);
+
+        if (atx > aty && aty < axisSnapThreshold) {
+            tx = tx > 0 ? 1 : -1;
+            ty = 0;
+        } else if (aty > atx && atx < axisSnapThreshold) {
+            tx = 0;
+            ty = ty > 0 ? 1 : -1;
+        }
+
+        var bias = this.config.waveBias !== undefined ? this.config.waveBias : 0.6;
+
+        nx = nx * (1 - bias) + tx * bias;
+        ny = ny * (1 - bias) + ty * bias;
+
+        var nlen = Math.sqrt(nx * nx + ny * ny);
+        if (nlen > 0) {
+            nx /= nlen;
+            ny /= nlen;
+        }
+    }
+}
+// --- End wave-axis bias ---
 
             // Relative velocity along the collision normal
             var dvx    = m.check.vel.x - m.cell.vel.x;
