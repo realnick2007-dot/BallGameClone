@@ -6,4 +6,5 @@ module.exports = {
     MotherCell: require('./MotherCell'),
     EjectedMass: require('./EjectedMass'),
     GrowthPellet: require('./GrowthPellet'),
+    Coin: require('./Coin'),
 };
