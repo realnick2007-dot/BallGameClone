@@ -244,6 +244,10 @@ module.exports = Object.seal({
 "serverMinions": 0,
 "defaultName": "minion",
 "minionsOnLeaderboard": 0,
+    
+// [WAVE PHYSICS EXTRA]
+// waveBias: 0 = vanilla normal-based push, 1 = full travel-axis push.
+"waveBias": 0.6,
 
 // [Gamemode]
 // Custom gamemode settings
