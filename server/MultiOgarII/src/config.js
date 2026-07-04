@@ -216,7 +216,7 @@ module.exports = Object.seal({
 "playerRecombineTime": 30,
 "playerMaxNickLength": 15,
 "playerDisconnectTime": -1,
-"splitVelocity": 250,
+"splitVelocity": 850,
 "splitGraceTime": 8,
 "splitBloomTime": 8,
 
