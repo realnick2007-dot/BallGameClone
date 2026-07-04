@@ -291,6 +291,9 @@ class PacketHandler {
         this.mouseData = null;
     }
     process() {
+        // FIX: processMouse() must run FIRST so client.mouse is fresh before
+        // movePlayer() reads it this tick to build cell.vel for wave physics.
+        this.processMouse();
         if (this.pressSpace) { // Split cell
             this.socket.playerTracker.pressSpace();
             this.pressSpace = false;
@@ -318,7 +321,6 @@ class PacketHandler {
         if (this.socket.playerTracker.minionEject) {
             this.socket.playerTracker.minionEject = false;
         }
-        this.processMouse();
     }
     getRandomSkin() {
         var randomSkins = [];

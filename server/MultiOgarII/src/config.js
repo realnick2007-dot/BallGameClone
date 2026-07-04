@@ -50,8 +50,6 @@ module.exports = Object.seal({
 "serverViewBaseY": 10800,
 "serverMinScale": 0.15,
 "serverSpectatorScale": 0.4,
-"serverStatsPort": 88,
-"serverStatsUpdate": 60,
 "mobilePhysics": 0,
 "badWordFilter": 1,
 "serverRestart": 0,
@@ -196,6 +194,9 @@ module.exports = Object.seal({
 // playerDecayCap: Maximum mass a cell can have before it's decayrate multiplies by 10. (0 to disable)
 // playerDisconnectTime: Time in seconds before a disconnected player's cell is removed from the server (Set to -1 to never remove)
 // splitVelocity: Velocity of splitting playercells (speed and distance)
+//   NOTE: lowered from 1024 to 250 so split cells settle into a resting line
+//   near each other, which is required for Newton's cradle wave chaining.
+//   At 1024 cells fly too far apart for resolveRigidCollision impulse to chain.
 //
 // [SPLIT BLOOM]
 // splitGraceTime: Ticks after a split where sibling collision is fully ignored (phase-through). 1 tick = 40ms. (vanilla-style: 13)
@@ -215,7 +216,7 @@ module.exports = Object.seal({
 "playerRecombineTime": 30,
 "playerMaxNickLength": 15,
 "playerDisconnectTime": -1,
-"splitVelocity": 1024,
+"splitVelocity": 250,
 "splitGraceTime": 8,
 "splitBloomTime": 8,
 
@@ -226,13 +227,20 @@ module.exports = Object.seal({
 // cellRestitution: Bounciness coefficient on rigid cell-cell collision (impulse transfer).
 //   0.0 = perfectly inelastic (cells absorb all momentum on impact, no wave).
 //   1.0 = perfectly elastic (full Newton's cradle bounce, very chaotic).
-//   0.35 matches Cellcraft-style wave propagation — subtle but clearly visible.
+//   0.8 gives strong visible chaining through a line of cells (linesplit wave).
+//   Previously 0.35 — too low to feel through 4+ cells with friction applied.
 // cellVelScale: Fraction of each tick's mouse-step displacement that feeds into
 //   the persistent velocity vector. 1.0 = full contribution. 0.6 = tighter steering.
 //   Lower values make the cell feel more "planted"; higher values increase wave amplitude.
+// axisSnapThreshold: When the travel direction is within this many radians of a
+//   cardinal axis (left/right/up/down), the wave impulse is snapped fully onto
+//   that axis. This is what enables clean horizontal linesplits — the momentum
+//   aligns precisely along the line of cells rather than leaking diagonally.
+//   0.08 rad ≈ 4.6 degrees of tolerance on either side of the axis.
 "cellFriction": 0.82,
-"cellRestitution": 0.35,
+"cellRestitution": 0.8,
 "cellVelScale": 0.8,
+"axisSnapThreshold": 0.08,
 
 // [MINIONS]
 // Custom minion settings
