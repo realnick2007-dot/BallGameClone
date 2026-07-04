@@ -740,40 +740,51 @@ class Server {
             return; // avoid jittering
         }
 
-var velScale = this.config.cellVelScale !== undefined ? this.config.cellVelScale : 0.8;
+        var velScale = this.config.cellVelScale !== undefined ? this.config.cellVelScale : 0.8;
 
-// Snap near-cardinal travel directions so linesplits stay on a clean axis
-var axisSnapThreshold = this.config.axisSnapThreshold !== undefined ? this.config.axisSnapThreshold : 0.08;
-var dirX = d.x;
-var dirY = d.y;
-var absX = Math.abs(dirX);
-var absY = Math.abs(dirY);
+        // FIX: normalize d to a unit vector BEFORE the axis-snap comparison.
+        // Previously dirX/dirY held raw world-unit distances (hundreds to thousands),
+        // so the axisSnapThreshold=0.08 check never fired and the snap was completely
+        // dead. Normalizing first makes the components fall in [-1,1], so the
+        // threshold comparison works as intended.
+        var dirX = dist > 0 ? d.x / dist : 0;
+        var dirY = dist > 0 ? d.y / dist : 0;
 
-if (absX > absY && absY < axisSnapThreshold) {
-    dirX = dirX > 0 ? 1 : -1;
-    dirY = 0;
-} else if (absY > absX && absX < axisSnapThreshold) {
-    dirX = 0;
-    dirY = dirY > 0 ? 1 : -1;
-}
+        // Snap near-cardinal travel directions so linesplits stay on a clean axis.
+        var axisSnapThreshold = this.config.axisSnapThreshold !== undefined ? this.config.axisSnapThreshold : 0.08;
+        var absX = Math.abs(dirX);
+        var absY = Math.abs(dirY);
 
-var stepX = dirX * move;
-var stepY = dirY * move;
+        if (absX > absY && absY < axisSnapThreshold) {
+            dirX = dirX > 0 ? 1 : -1;
+            dirY = 0;
+        } else if (absY > absX && absX < axisSnapThreshold) {
+            dirX = 0;
+            dirY = dirY > 0 ? 1 : -1;
+        }
 
-if (cell.vel) {
-    // Farther cells accelerate more distinctly so the train stretches cleanly
-    var distNorm = Math.min(dist / 2000, 1);
-    var blend = 0.5 + distNorm * 0.3;
+        // stepX/stepY: world-unit displacement = unit direction * speed fraction * distance.
+        // This is equivalent to d.product(move) when snap doesn't fire, but when snap
+        // fires the direction is locked to the cardinal axis while speed magnitude is kept.
+        var stepX = dirX * move * dist;
+        var stepY = dirY * move * dist;
 
-    cell.vel.x = cell.vel.x * (1 - blend) + stepX * velScale * blend;
-    cell.vel.y = cell.vel.y * (1 - blend) + stepY * velScale * blend;
-    cell.position.x += cell.vel.x;
-    cell.position.y += cell.vel.y;
-    cell.vel.x *= friction;
-    cell.vel.y *= friction;
-} else {
-    cell.position.add(d.product(move));
-}
+        if (cell.vel) {
+            // Farther cells accelerate more distinctly so the train stretches cleanly
+            var distNorm = Math.min(dist / 2000, 1);
+            var blend = 0.5 + distNorm * 0.3;
+
+            // vel is updated from the normalized step so the wave impulse direction is
+            // consistent regardless of how far the mouse is from the cell.
+            cell.vel.x = cell.vel.x * (1 - blend) + (dirX * velScale) * blend;
+            cell.vel.y = cell.vel.y * (1 - blend) + (dirY * velScale) * blend;
+            cell.position.x += stepX;
+            cell.position.y += stepY;
+            cell.vel.x *= friction;
+            cell.vel.y *= friction;
+        } else {
+            cell.position.add(d.product(move));
+        }
         // --- End wave physics ---
 
         // update remerge
