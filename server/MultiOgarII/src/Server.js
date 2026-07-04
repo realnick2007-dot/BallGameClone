@@ -514,7 +514,7 @@ class Server {
             }
             ;
             this.nodes = [];
-			this.nodesCoins = [];
+		    this.nodesCoins = [];
             this.nodesVirus = [];
             this.nodesFood = [];
             this.nodesEjected = [];
@@ -561,6 +561,8 @@ class Server {
             //  1. movePlayer()     — integrates mouse input into cell.vel so
             //                        the velocity vector is populated BEFORE
             //                        any collision resolution happens this tick.
+            //                        SKIPPED for position update when cell is
+            //                        actively boosting (boostCell handles movement).
             //  2. boostCell()      — applies split/boost displacement and
             //                        calls updateNodeQuad() internally.
             //  3. updateNodeQuad() — commits the post-move position to the
@@ -578,7 +580,12 @@ class Server {
                 if (cell.isRemoved)
                     return;
 
-                // 1. Move: build vel from mouse this tick
+                // 1. Move: build vel from mouse this tick.
+                //    FIX: skip position update entirely when the cell is actively
+                //    boosting — boostCell() (step 2) is already moving it along
+                //    boostDirection. Allowing movePlayer to also shift position
+                //    caused a double-move that spread split cells sideways before
+                //    the collision resolver could chain them in a line.
                 this.movePlayer(cell, cell.owner);
 
                 // 2. Boost: apply split/boost arc (calls updateNodeQuad internally)
@@ -667,6 +674,11 @@ class Server {
     // neighbouring cells via an impulse, producing the Newton's-cradle wave push
     // seen on Cellcraft.io.
     //
+    // FIX (double-move during boost): when a cell is actively boosting
+    // (boostDistance > 1), movePlayer now updates cell.vel for the wave bias
+    // but does NOT shift cell.position. boostCell() owns position during a boost.
+    // Previously both functions moved the cell, scattering split cells sideways.
+    //
     // Recombine powerup behaviour (unchanged):
     //   - The "anchor" cell is the one closest to the mouse cursor — it moves
     //     toward the mouse at normal speed so the player steers where they merge.
@@ -742,11 +754,7 @@ class Server {
 
         var velScale = this.config.cellVelScale !== undefined ? this.config.cellVelScale : 0.8;
 
-        // FIX: normalize d to a unit vector BEFORE the axis-snap comparison.
-        // Previously dirX/dirY held raw world-unit distances (hundreds to thousands),
-        // so the axisSnapThreshold=0.08 check never fired and the snap was completely
-        // dead. Normalizing first makes the components fall in [-1,1], so the
-        // threshold comparison works as intended.
+        // Normalize d to a unit vector for the axis-snap comparison and vel update.
         var dirX = dist > 0 ? d.x / dist : 0;
         var dirY = dist > 0 ? d.y / dist : 0;
 
@@ -763,27 +771,36 @@ class Server {
             dirY = dirY > 0 ? 1 : -1;
         }
 
-        // stepX/stepY: world-unit displacement = unit direction * speed fraction * distance.
-        // This is equivalent to d.product(move) when snap doesn't fire, but when snap
-        // fires the direction is locked to the cardinal axis while speed magnitude is kept.
-        var stepX = dirX * move * dist;
-        var stepY = dirY * move * dist;
+        // FIX: when the cell is actively boosting, boostCell() owns position.
+        // We still update cell.vel here so resolveRigidCollision has a fresh
+        // mouse-direction signal, but we must NOT also move position or the cell
+        // gets double-moved (boost arc + mouse pull), scattering split cells sideways.
+        var isBoosting = cell.isMoving && cell.boostDistance > 1;
 
         if (cell.vel) {
             // Farther cells accelerate more distinctly so the train stretches cleanly
             var distNorm = Math.min(dist / 2000, 1);
             var blend = 0.5 + distNorm * 0.3;
 
-            // vel is updated from the normalized step so the wave impulse direction is
+            // vel is updated from the normalized direction so the wave impulse is
             // consistent regardless of how far the mouse is from the cell.
             cell.vel.x = cell.vel.x * (1 - blend) + (dirX * velScale) * blend;
             cell.vel.y = cell.vel.y * (1 - blend) + (dirY * velScale) * blend;
-            cell.position.x += stepX;
-            cell.position.y += stepY;
+
+            if (!isBoosting) {
+                // Only shift position when not boosting — boostCell handles it otherwise
+                var stepX = dirX * move * dist;
+                var stepY = dirY * move * dist;
+                cell.position.x += stepX;
+                cell.position.y += stepY;
+            }
+
             cell.vel.x *= friction;
             cell.vel.y *= friction;
         } else {
-            cell.position.add(d.product(move));
+            if (!isBoosting) {
+                cell.position.add(d.product(move));
+            }
         }
         // --- End wave physics ---
 
@@ -905,6 +922,14 @@ class Server {
     // Cellcraft-style behaviour). The impulse is scaled by bloomScale so
     // freshly-split cells don't receive violent wave forces during the bloom ramp.
     //
+    // FIX (wave-axis bias during splits): the bias vector now prefers
+    // boostDirection over cell.vel when either colliding cell is still actively
+    // boosting. boostDirection is the ground-truth split axis set by splitCells()
+    // via setBoost(); cell.vel at that moment holds stale mouse-drag direction
+    // and is nearly zero after friction decay, giving the bias nothing useful.
+    // Using boostDirection means the impulse chain always aligns with the actual
+    // split axis (e.g. straight down for a downward linesplit).
+    //
     // FREEZE mechanic: if either colliding cell's owner is frozen, skip the
     // entire resolution so frozen cells phase through each other silently.
     //
@@ -956,46 +981,65 @@ class Server {
             var restitution = this.config.cellRestitution !== undefined
                 ? this.config.cellRestitution : 0.35;
 
-// Collision normal: unit vector from cell toward check
-var nx = m.p.x / m.d;
-var ny = m.p.y / m.d;
+            // Collision normal: unit vector from cell toward check
+            var nx = m.p.x / m.d;
+            var ny = m.p.y / m.d;
 
-// --- Wave-axis bias: push more along travel direction than sideways ---
-if (m.cell.vel && m.check.vel) {
-    var avgVx = m.cell.vel.x + m.check.vel.x;
-    var avgVy = m.cell.vel.y + m.check.vel.y;
-    var avgLen = Math.sqrt(avgVx * avgVx + avgVy * avgVy);
+            // --- Wave-axis bias ---
+            // FIX: when either cell is still actively boosting, use boostDirection
+            // as the travel axis instead of the average vel. boostDirection is set
+            // by splitCells() to the exact split angle and is the only reliable
+            // axis signal during the first ~13 ticks after a split. cell.vel at
+            // that time holds stale mouse-drag direction (and is nearly zero after
+            // friction), so the old vel-based bias produced a chaotic impulse direction.
+            var cellBoosting  = m.cell.isMoving  && m.cell.boostDistance  > 1;
+            var checkBoosting = m.check.isMoving && m.check.boostDistance > 1;
 
-    if (avgLen > 1.0) {
-        var tx = avgVx / avgLen;
-        var ty = avgVy / avgLen;
+            var travelX, travelY;
+            if (cellBoosting || checkBoosting) {
+                // Pick the cell with the most remaining boost energy as the axis source
+                var src = (m.cell.boostDistance >= m.check.boostDistance) ? m.cell : m.check;
+                travelX = src.boostDirection.x;
+                travelY = src.boostDirection.y;
+            } else {
+                // Fall back to vel-based average (non-split normal movement)
+                travelX = m.cell.vel.x + m.check.vel.x;
+                travelY = m.cell.vel.y + m.check.vel.y;
+                var avgLen = Math.sqrt(travelX * travelX + travelY * travelY);
+                if (avgLen < 1.0) {
+                    travelX = 0;
+                    travelY = 0;
+                } else {
+                    travelX /= avgLen;
+                    travelY /= avgLen;
+                }
+            }
 
-        // Snap travel axis for near-cardinal linesplits
-        var axisSnapThreshold = this.config.axisSnapThreshold !== undefined ? this.config.axisSnapThreshold : 0.08;
-        var atx = Math.abs(tx);
-        var aty = Math.abs(ty);
+            // Snap travel axis for near-cardinal linesplits
+            if (travelX !== 0 || travelY !== 0) {
+                var axisSnapThreshold = this.config.axisSnapThreshold !== undefined ? this.config.axisSnapThreshold : 0.08;
+                var atx = Math.abs(travelX);
+                var aty = Math.abs(travelY);
 
-        if (atx > aty && aty < axisSnapThreshold) {
-            tx = tx > 0 ? 1 : -1;
-            ty = 0;
-        } else if (aty > atx && atx < axisSnapThreshold) {
-            tx = 0;
-            ty = ty > 0 ? 1 : -1;
-        }
+                if (atx > aty && aty < axisSnapThreshold) {
+                    travelX = travelX > 0 ? 1 : -1;
+                    travelY = 0;
+                } else if (aty > atx && atx < axisSnapThreshold) {
+                    travelX = 0;
+                    travelY = travelY > 0 ? 1 : -1;
+                }
 
-        var bias = this.config.waveBias !== undefined ? this.config.waveBias : 0.6;
+                var bias = this.config.waveBias !== undefined ? this.config.waveBias : 0.6;
+                nx = nx * (1 - bias) + travelX * bias;
+                ny = ny * (1 - bias) + travelY * bias;
 
-        nx = nx * (1 - bias) + tx * bias;
-        ny = ny * (1 - bias) + ty * bias;
-
-        var nlen = Math.sqrt(nx * nx + ny * ny);
-        if (nlen > 0) {
-            nx /= nlen;
-            ny /= nlen;
-        }
-    }
-}
-// --- End wave-axis bias ---
+                var nlen = Math.sqrt(nx * nx + ny * ny);
+                if (nlen > 0) {
+                    nx /= nlen;
+                    ny /= nlen;
+                }
+            }
+            // --- End wave-axis bias ---
 
             // Relative velocity along the collision normal
             var dvx    = m.check.vel.x - m.cell.vel.x;
