@@ -937,12 +937,38 @@ class Server {
     // refreshed immediately. This is essential for wave chaining — without it,
     // the next cell processed in the same tick's forEach cannot detect the
     // just-pushed neighbour because the tree still holds its pre-push position.
+    //
+    // FIX (near-coincident cells): cells born at the same position have m.d ~ 0,
+    // making m.p/m.d a random unit vector. When either cell is actively boosting,
+    // we now use boostDirection as the separation axis instead of m.p/m.d so
+    // the freshly-split pair is pushed apart along the intended split line.
     resolveRigidCollision(m) {
         // Frozen cells phase through — no position correction, no impulse
         if ((m.cell.owner && m.cell.owner.cellsFrozen) ||
             (m.check.owner && m.check.owner.cellsFrozen)) return;
 
-        if (m.d == 0) return; // coincident cells — skip to avoid division by zero
+        // FIX: near-coincident guard replaces the bare `m.d == 0 return`.
+        // When cells are born at the same position (linesplit tick 0), m.d is
+        // nearly zero and m.p/m.d is undefined/random. If either cell is still
+        // boosting, push them apart along boostDirection (the true split axis).
+        if (m.d < 2.0) {
+            var _cb  = m.cell.isMoving  && m.cell.boostDistance  > 1;
+            var _chb = m.check.isMoving && m.check.boostDistance > 1;
+            if (_cb || _chb) {
+                var _src = (m.cell.boostDistance >= m.check.boostDistance) ? m.cell : m.check;
+                var _bx = _src.boostDirection.x, _by = _src.boostDirection.y;
+                var _bl = Math.sqrt(_bx * _bx + _by * _by);
+                if (_bl > 0) { _bx /= _bl; _by /= _bl; }
+                var _ts = m.cell._size + m.check._size;
+                m.cell.position.x  -= _bx * m.check._size / _ts;
+                m.cell.position.y  -= _by * m.check._size / _ts;
+                m.check.position.x += _bx * m.cell._size  / _ts;
+                m.check.position.y += _by * m.cell._size  / _ts;
+                if (!m.cell.isRemoved  && m.cell.quadItem)  this.updateNodeQuad(m.cell);
+                if (!m.check.isRemoved && m.check.quadItem) this.updateNodeQuad(m.check);
+            }
+            if (m.d === 0) return; // still exactly coincident and not boosting — skip
+        }
 
         var overlap = m.cell._size + m.check._size - m.d;
         if (overlap <= 0) return; // not overlapping
@@ -1255,12 +1281,25 @@ class Server {
         var cellToSplit = [];
         for (var i = 0; i < client.cells.length; i++)
             cellToSplit.push(client.cells[i]);
+
+        // FIX: compute one stable centroid→mouse angle before the loop.
+        // Per-cell d = mouse - cell.position diverges when cells are stacked
+        // (linesplit scenario): near-zero d values all default to angle 0 (right),
+        // firing every cell rightward regardless of where the mouse actually is.
+        // Using the centroid gives a single reliable direction for the whole split.
+        var _cx = 0, _cy = 0;
+        for (var _i = 0; _i < client.cells.length; _i++) {
+            _cx += client.cells[_i].position.x;
+            _cy += client.cells[_i].position.y;
+        }
+        _cx /= client.cells.length;
+        _cy /= client.cells.length;
+        var _gd = client.mouse.difference(new Vec2(_cx, _cy));
+        if (_gd.distSquared() < 1) { _gd.x = 1; _gd.y = 0; }
+        var _splitAngle = _gd.angle();
+
         // Split split-able cells
         cellToSplit.forEach((cell) => {
-            var d = client.mouse.difference(cell.position);
-            if (d.distSquared() < 1) {
-                d.x = 1, d.y = 0;
-            }
             if (cell._size < this.config.playerMinSplitSize)
                 return; // cannot split
             // Get maximum cells for rec mode
@@ -1270,8 +1309,8 @@ class Server {
                 max = this.config.playerMaxCells;
             if (client.cells.length >= max)
                 return;
-            // Now split player cells
-            this.splitPlayerCell(client, cell, d.angle(), cell._mass * .5);
+            // Now split player cells — all use the same centroid-derived angle
+            this.splitPlayerCell(client, cell, _splitAngle, cell._mass * .5);
         });
     }
     canEjectMass(client) {
