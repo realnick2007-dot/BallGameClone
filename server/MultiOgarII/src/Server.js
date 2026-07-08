@@ -903,10 +903,16 @@ if (cell.vel) {
         var overlap = m.cell._size + m.check._size - m.d;
         if (overlap <= 0) return; // not overlapping
 
-        // Normalize push by summed sizes for a physically consistent, size-independent force.
-        var totalSize = m.cell._size + m.check._size;
-        // push: fraction of overlap relative to total diameter — bounded [0, 0.5]
-        var push = overlap / totalSize;
+        // Mass-weighted separation: distribute the overlap by INVERSE mass so a
+        // heavy/large cell barely moves while a light/tiny cell gets shoved away.
+        // Using getMass() (size^2 scaling) instead of raw radius makes the ratio
+        // strong enough that a big cell hit by a small one hardly budges.
+        var massCell  = m.cell.getMass();
+        var massCheck = m.check.getMass();
+        var totalMass = massCell + massCheck;
+        // Guard: coincident masses (>0 always, but keep fallback) => even split.
+        var fracCell  = totalMass > 0 ? massCheck / totalMass : 0.5; // cell's share of overlap
+        var fracCheck = totalMass > 0 ? massCell  / totalMass : 0.5; // check's share of overlap
 
         // --- Split bloom: cubic ramp-up of push force after grace period ---
         var bloomScale = 1.0;
@@ -922,9 +928,11 @@ if (cell.vel) {
         }
         // --- End bloom ---
 
-        // Mass-weighted impulse: larger cell moves less, smaller cell moves more.
-        var r1 = push * m.check._size / totalSize * bloomScale; // displacement for cell
-        var r2 = push * m.cell._size  / totalSize * bloomScale; // displacement for check
+        // Displacement magnitudes sum to `overlap` (full separation preserved).
+        // m.p is unnormalised (|m.p| == m.d), so divide by m.d to project the
+        // desired magnitude onto the collision normal.
+        var r1 = overlap * fracCell  / m.d * bloomScale; // displacement for cell
+        var r2 = overlap * fracCheck / m.d * bloomScale; // displacement for check
 
         // Apply extrusion along collision normal (p points from cell -> check)
         m.cell.position.subtract(m.p.product(r1));
