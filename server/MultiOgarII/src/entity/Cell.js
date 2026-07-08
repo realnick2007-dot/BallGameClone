@@ -39,6 +39,19 @@ class Cell {
         this._mass = this.radius / 100;
     };
 
+    // getMass() — single source of truth for physics mass.
+    // Always equals _size^2 / 100 (same as _mass), but calling this makes
+    // collision code self-documenting and immune to _mass going stale.
+    // massExponent in config controls the scaling curve (default 2 = vanilla):
+    //   exponent 2  -> mass grows as area  (current behaviour)
+    //   exponent 3  -> mass grows as volume (heavier large cells)
+    getMass() {
+        if (this.server && this.server.config.massExponent !== undefined && this.server.config.massExponent !== 2) {
+            return Math.pow(this._size, this.server.config.massExponent) / 100;
+        }
+        return this._mass; // fast path: _mass is always kept in sync by setSize()
+    };
+
     // By default cell cannot eat anyone
     canEat(cell) {
         return false;

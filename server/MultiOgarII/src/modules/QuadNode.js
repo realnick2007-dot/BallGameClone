@@ -87,6 +87,12 @@ class QuadNode {
                 if (childNode.find(bound, callback))
                     return true;
         }
+        // FIX: always scan this node's own items even when children exist.
+        // Large cells that straddle a quadrant boundary are stored at the parent
+        // node (getQuad returns -1 for them). Without this, a find() that descends
+        // into a child quad would never visit those boundary-straddling cells,
+        // causing missed collisions for large cells near quadrant borders.
+        // The original code already did this correctly — this comment documents why.
         for (const item of this.items) {
             if (bound.overlaps(item.bound))
                 if (callback(item.cell))
