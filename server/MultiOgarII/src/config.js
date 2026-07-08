@@ -261,9 +261,14 @@ module.exports = Object.seal({
 "defaultName": "minion",
 "minionsOnLeaderboard": 0,
 
+// REPLACE WITH:
 // [WAVE PHYSICS EXTRA]
 // waveBias: 0 = vanilla normal-based push, 1 = full travel-axis push.
+// massExponent: power used by getMass() to scale cell mass from size.
+//   2 = vanilla (mass = size^2 / 100, same as _mass).
+//   3 = heavier large cells resist displacement even more aggressively.
 "waveBias": 0.6,
+"massExponent": 2,
 
 // [Gamemode]
 // Custom gamemode settings
