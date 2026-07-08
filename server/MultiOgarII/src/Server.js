@@ -959,11 +959,12 @@ class Server {
                 var _bx = _src.boostDirection.x, _by = _src.boostDirection.y;
                 var _bl = Math.sqrt(_bx * _bx + _by * _by);
                 if (_bl > 0) { _bx /= _bl; _by /= _bl; }
-                var _ts = m.cell._size + m.check._size;
-                m.cell.position.x  -= _bx * m.check._size / _ts;
-                m.cell.position.y  -= _by * m.check._size / _ts;
-                m.check.position.x += _bx * m.cell._size  / _ts;
-                m.check.position.y += _by * m.cell._size  / _ts;
+				// REPLACE WITH:
+				var _tm = m.cell.getMass() + m.check.getMass();
+				m.cell.position.x  -= _bx * (m.check.getMass() / _tm);
+				m.cell.position.y  -= _by * (m.check.getMass() / _tm);
+				m.check.position.x += _bx * (m.cell.getMass()  / _tm);
+				m.check.position.y += _by * (m.cell.getMass()  / _tm);
                 if (!m.cell.isRemoved  && m.cell.quadItem)  this.updateNodeQuad(m.cell);
                 if (!m.check.isRemoved && m.check.quadItem) this.updateNodeQuad(m.check);
             }
@@ -992,9 +993,10 @@ class Server {
         }
         // --- End bloom ---
 
-        // Mass-weighted impulse: larger cell moves less, smaller cell moves more.
-        var r1 = push * m.check._size / totalSize * bloomScale; // displacement for cell
-        var r2 = push * m.cell._size  / totalSize * bloomScale; // displacement for check
+		// REPLACE WITH:
+		var totalMass = m.cell.getMass() + m.check.getMass();
+		var r1 = push * (m.check.getMass() / totalMass) * bloomScale; // displacement for cell
+		var r2 = push * (m.cell.getMass()  / totalMass) * bloomScale; // displacement for check
 
         // Apply extrusion along collision normal (p points from cell -> check)
         m.cell.position.subtract(m.p.product(r1));
@@ -1074,8 +1076,9 @@ class Server {
 
             // Only resolve if cells are approaching each other
             if (relVel < 0) {
-                var massA = m.cell._size  * m.cell._size;
-                var massB = m.check._size * m.check._size;
+				// REPLACE WITH:
+				var massA = m.cell.getMass();
+				var massB = m.check.getMass();
                 // Impulse scalar (mass-weighted, scaled by bloom so fresh splits behave)
                 var j = -(1 + restitution) * relVel / (1 / massA + 1 / massB) * bloomScale;
 
