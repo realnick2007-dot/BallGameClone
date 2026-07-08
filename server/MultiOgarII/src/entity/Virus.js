@@ -38,6 +38,33 @@ class Virus extends Cell {
             return;
         var splitMin = config.virusMaxPoppedSize * config.virusMaxPoppedSize / 100;
         var cellMass = cell._mass, splits = [], splitCount, splitMass;
+        if (config.virusGiganticPop) {
+            // Gigantic / Cellcraft / agma style pop: distribute mass across a FEW
+            // geometrically-decreasing larger pieces plus MANY small pieces,
+            // instead of one leftover giant + equal tiny cells. Total mass is
+            // preserved (parent keeps whatever is not peeled off), the max-cell
+            // cap is respected, and no piece drops below the min split size.
+            var massLeft = cellMass;
+            var bigPieces = config.virusGiganticBigPieces || 3;
+            // Large pieces: 1/2, 1/4, 1/8 ... of the remaining mass.
+            while (splits.length < cellsLeft && bigPieces-- > 0) {
+                var big = massLeft / 2;
+                if (big < splitMin) break;
+                splits.push(big);
+                massLeft -= big;
+            }
+            // Small pieces: split ~half the remaining mass into equal small cells,
+            // never below splitMin, always leaving mass for the parent cell.
+            var slots = cellsLeft - splits.length;
+            if (slots > 0) {
+                var small = Math.max(splitMin, (massLeft * 0.5) / slots);
+                while (splits.length < cellsLeft && massLeft - small >= splitMin) {
+                    splits.push(small);
+                    massLeft -= small;
+                }
+            }
+            return this.explodeCell(cell, splits);
+        }
         if (config.virusEqualPopSize) {
             // definite monotone splits
             splitCount = Math.min(~~(cellMass / splitMin), cellsLeft);

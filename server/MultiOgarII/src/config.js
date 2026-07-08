@@ -147,6 +147,8 @@ module.exports = Object.seal({
 // virusMaxSize: Maximum virus size (vanilla: mass: val*val/100: 200 mass)
 // virusMaxPoppedSize: Maximum size a popped cell can have
 // virusEqualPopSize: Whether popped cells have equal size or not (1 to enable)
+// virusGiganticPop: Gigantic-style pop — a few larger pieces + many small ones (1 to enable, overrides virusEqualPopSize)
+// virusGiganticBigPieces: How many geometrically-decreasing large pieces to peel off first (default 3)
 // virusAmount: Amount of viruses to spawn
 // virusMaxAmount": Maximum amount of viruses allowed ingame.
 // motherCellMaxMass: Maximum amount of mass a mothercell is allowed to have (0 for no limit)
@@ -157,6 +159,8 @@ module.exports = Object.seal({
 "virusMaxSize": 141.421356237,
 "virusMaxPoppedSize": 60,
 "virusEqualPopSize": 1,
+"virusGiganticPop": 1,
+"virusGiganticBigPieces": 3,
 "virusAmount": 0,//50,
 "virusMaxAmount": 100,//100,
 "motherCellMaxMass": 0,
