@@ -179,7 +179,8 @@ class Server {
         var s = node._size;
         node.quadItem = {
             cell: node,
-            bound: new Quad(x - s, y - s, x + s, y + s)
+            bound: new Quad(x - s, y - s, x + s, y + s),
+            anchored: !!node.isAnchored // weighted cells anchor to their QuadNode
         };
         this.quadTree.insert(node.quadItem);
         this.nodes.push(node);
@@ -742,20 +743,10 @@ class Server {
 
 var velScale = this.config.cellVelScale !== undefined ? this.config.cellVelScale : 0.8;
 
-// Snap near-cardinal travel directions so linesplits stay on a clean axis
-var axisSnapThreshold = this.config.axisSnapThreshold !== undefined ? this.config.axisSnapThreshold : 0.08;
+// Continuous 360° aim: use the raw mouse-direction vector with no cardinal
+// snapping/quantization, so the player can aim freely at any angle.
 var dirX = d.x;
 var dirY = d.y;
-var absX = Math.abs(dirX);
-var absY = Math.abs(dirY);
-
-if (absX > absY && absY < axisSnapThreshold) {
-    dirX = dirX > 0 ? 1 : -1;
-    dirY = 0;
-} else if (absY > absX && absX < axisSnapThreshold) {
-    dirX = 0;
-    dirY = dirY > 0 ? 1 : -1;
-}
 
 var stepX = dirX * move;
 var stepY = dirY * move;
@@ -850,8 +841,9 @@ if (cell.vel) {
         item.miny = node.position.y - node._size;
         item.maxx = node.position.x + node._size;
         item.maxy = node.position.y + node._size;
-        this.quadTree.remove(node.quadItem);
-        this.quadTree.insert(node.quadItem);
+        // Anchor-aware update: weighted/anchored cells (e.g. PlayerCell) skip the
+        // remove + re-insert churn while they remain inside their current node.
+        this.quadTree.update(node.quadItem);
     }
     // Checks cells for collision
     checkCellCollision(cell, check) {

@@ -7,6 +7,7 @@ class PlayerCell extends Cell {
         this.type = 0;
         this.speed = 0;
         this._canRemerge = false;
+        this.isAnchored = true; // weighted cell: anchors to its QuadNode (see QuadNode.update)
     };
 
     canEat(cell) {

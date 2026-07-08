@@ -19,6 +19,11 @@ class Quad {
         return !(this.minx >= other.maxx || this.maxx <= other.minx
             || this.miny >= other.maxy || this.maxy <= other.miny);
     }
+    // true if `other` fits completely inside this quad
+    contains(/* Quad */other) {
+        return other.minx >= this.minx && other.maxx <= this.maxx
+            && other.miny >= this.miny && other.maxy <= this.maxy;
+    }
 }
 
 class QuadNode {
@@ -74,6 +79,22 @@ class QuadNode {
             }
             this.items = remaining;
         }
+    }
+    // Anchor-aware reposition. A weighted/anchored item (item.anchored === true)
+    // stays attached to its current QuadNode as long as its (already-updated)
+    // bound still fits inside that node's bounds — so a cell that only moved a
+    // little is NOT removed and re-inserted every tick. Queries stay correct
+    // because the item's bound is fully contained in its node's bound, so any
+    // find() whose region overlaps the item necessarily descends into that node.
+    // Non-anchored items (or items that left their node) fall back to the
+    // original remove + re-insert behaviour.
+    update(item) {
+        var node = item._quadNode;
+        if (item.anchored && node && node.bound.contains(item.bound))
+            return;
+        if (node)
+            this.remove(item);
+        this.insert(item);
     }
     remove(item) {
         if (item._quadNode !== this)
