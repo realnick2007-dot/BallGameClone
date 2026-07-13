@@ -75,7 +75,10 @@
             pPressed = false,
             wPressed = false,
             gPressed = false,
-            hPressed = false;
+            hPressed = false,
+            sPressed = false,
+            uPressed = false,
+            yPressed = false;
         wHandle.onkeydown = function(event) {
             switch (event.keyCode) {
                 case 13: // enter
@@ -162,6 +165,27 @@
                         gPressed = true;
                     }
                     break;
+                case 83: // S — Speed powerup (opcode 32)
+                    if (!sPressed && (!isTyping)) {
+                        sendMouseMove();
+                        sendUint8(32);
+                        sPressed = true;
+                    }
+                    break;
+                case 85: // U — Portal powerup (opcode 30)
+                    if (!uPressed && (!isTyping)) {
+                        sendMouseMove();
+                        sendUint8(30);
+                        uPressed = true;
+                    }
+                    break;
+                case 89: // Y — Freeze powerup (opcode 31)
+                    if (!yPressed && (!isTyping)) {
+                        sendMouseMove();
+                        sendUint8(31);
+                        yPressed = true;
+                    }
+                    break;
                 case 27: // esc
                     showOverlays(true);
                     break;
@@ -199,12 +223,22 @@
                     break;
                 case 71:
                     gPressed = false;
+                    break;
+                case 83:
+                    sPressed = false;
+                    break;
+                case 85:
+                    uPressed = false;
+                    break;
+                case 89:
+                    yPressed = false;
+                    break;
             }
         };
         wHandle.onblur = function() {
             sendUint8(19);
             sendUint8(29); // also release W macro on window blur
-            wPressed = spacePressed = qPressed = ePressed = rPressed = tPressed = pPressed = false
+            wPressed = spacePressed = qPressed = ePressed = rPressed = tPressed = pPressed = sPressed = uPressed = yPressed = false
         };
 
         wHandle.onresize = canvasResize;

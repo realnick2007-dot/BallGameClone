@@ -27,6 +27,8 @@ class Server {
         this.nodesVirus = []; // Virus nodes
 		this.nodesGrowthPellets = []; // Growth nodes
 		this.nodesCoins = []; // Coin nodes
+        this.nodesPortals = []; // Portal powerup nodes (type 7)
+        this.nodesFreezePowerups = []; // Freeze powerup nodes (type 8)
         this.nodesFood = []; // Food nodes
         this.nodesEjected = []; // Ejected nodes
         this.nodesPlayer = []; // Player nodes
@@ -516,6 +518,8 @@ class Server {
             ;
             this.nodes = [];
 			this.nodesCoins = [];
+            this.nodesPortals = [];
+            this.nodesFreezePowerups = [];
             this.nodesVirus = [];
             this.nodesFood = [];
             this.nodesEjected = [];
@@ -644,6 +648,29 @@ class Server {
                         this.removeNode(pellet);
                 });
             }
+            // Remove expired freeze powerups (same snapshot + isRemoved guard).
+            if (this.config.freezePowerupLifeTime) {
+                var fpSnapshot = this.nodesFreezePowerups.slice();
+                fpSnapshot.forEach(fp => {
+                    if (fp.isRemoved) return;
+                    if (this.ticks >= fp.createdAt + this.config.freezePowerupLifeTime * 25)
+                        this.removeNode(fp);
+                });
+            }
+            // Drive portals: suction/shrink/teleport/kick/self-destruct per tick.
+            var portalSnapshot = this.nodesPortals.slice();
+            portalSnapshot.forEach(portal => {
+                if (portal.isRemoved) return;
+                portal.update(this);
+            });
+            // Tick down freeze-powerup timers once per client per tick.
+            for (var ci = 0; ci < this.clients.length; ci++) {
+                var cl = this.clients[ci];
+                if (cl.freezePowerupTicks > 0) {
+                    cl.freezePowerupTicks--;
+                    if (cl.freezePowerupTicks === 0) this.thawPlayer(cl);
+                }
+            }
             this.mode.onTick(this);
             this.ticks++;
         }
@@ -678,7 +705,7 @@ class Server {
     // FREEZE mechanic: if client.cellsFrozen is true, all movement and velocity
     // updates are suppressed entirely. The cell stays exactly where it is.
     movePlayer(cell, client) {
-        if (client.socket.isConnected == false || client.cellsFrozen || !client.mouse)
+        if (client.socket.isConnected == false || client.cellsFrozen || client.freezePowerupTicks > 0 || !client.mouse)
             return; // Do not move
 
         // --- Recombine powerup: rush all non-anchor cells toward the anchor ---
@@ -699,6 +726,8 @@ class Server {
             var bonusSpeed = this.config.recombineBoostSpeed !== undefined
                 ? this.config.recombineBoostSpeed
                 : 150;
+            if (client.speedBoostUntil > this.ticks)
+                bonusSpeed *= (this.config.speedPowerupMultiplier || 2);
 
             if (cell === anchorCell) {
                 // Anchor: normal movement toward mouse cursor
@@ -792,6 +821,7 @@ if (cell.vel) {
     }
     // decay player cells
     updateSizeDecay(cell) {
+        if (cell.owner && cell.owner.portalActive) return; // no decay while inside a portal
         var rate = this.config.playerDecayRate, cap = this.config.playerDecayCap;
         if (!rate || cell._size <= this.config.playerMinSize)
             return;
@@ -895,8 +925,8 @@ if (cell.vel) {
     // just-pushed neighbour because the tree still holds its pre-push position.
     resolveRigidCollision(m) {
         // Frozen cells phase through — no position correction, no impulse
-        if ((m.cell.owner && m.cell.owner.cellsFrozen) ||
-            (m.check.owner && m.check.owner.cellsFrozen)) return;
+        if ((m.cell.owner && (m.cell.owner.cellsFrozen || m.cell.owner.freezePowerupTicks > 0)) ||
+            (m.check.owner && (m.check.owner.cellsFrozen || m.check.owner.freezePowerupTicks > 0))) return;
 
         if (m.d == 0) return; // coincident cells — skip to avoid division by zero
 
@@ -1072,6 +1102,38 @@ if (m.cell.vel && m.check.vel) {
         }
         // --- End coin ---
 
+        // --- Portal (type 7): the player is sucked in, NOT consumed ---
+        if (cell.type === 7 && check.type === 0) {
+            if (m.d < cell._size) this.enterPortal(cell, check.owner);
+            return;
+        }
+        if (check.type === 7 && cell.type === 0) {
+            if (m.d < check._size) this.enterPortal(check, cell.owner);
+            return;
+        }
+        // --- End portal ---
+
+        // --- Freeze powerup (type 8): any PlayerCell eats it (freezes the eater) ---
+        if (cell.type === 8 && check.type === 0) {
+            if (m.d < check._size) {
+                check.onEat(cell);
+                cell.onEaten(check);
+                cell.killer = check;
+                this.removeNode(cell);
+            }
+            return;
+        }
+        if (check.type === 8 && cell.type === 0) {
+            if (m.d < cell._size) {
+                cell.onEat(check);
+                check.onEaten(cell);
+                check.killer = cell;
+                this.removeNode(check);
+            }
+            return;
+        }
+        // --- End freeze powerup ---
+
         // check eating distance
         check.div = this.config.mobilePhysics ? 20 : 3;
         if (m.d >= check._size - cell._size / check.div) {
@@ -1104,7 +1166,10 @@ if (m.cell.vel && m.check.vel) {
         parent.setSize(size1);
         // Create cell and add it to node list
         var newCell = new Entity.PlayerCell(this, client, parent.position, size);
-        newCell.setBoost(this.config.splitVelocity * Math.pow(size, 0.0122), angle);
+        var sv = this.config.splitVelocity;
+        if (client && client.speedBoostUntil > this.ticks)
+            sv *= (this.config.speedPowerupMultiplier || 2);
+        newCell.setBoost(sv * Math.pow(size, 0.0122), angle);
         this.addNode(newCell);
     }
     randomPos() {
@@ -1154,6 +1219,43 @@ if (m.cell.vel && m.check.vel) {
         var pellet = new Entity.GrowthPellet(this, owner, safePos, this.config.growthPelletSize);
         this.addNode(pellet);
         return pellet;
+    }
+    // Spawns a Portal at the player's cursor (border-clamped). onAdd() pushes to nodesPortals.
+    spawnPortal(position, owner) {
+        var x = Math.max(this.border.minx, Math.min(this.border.minx + this.border.width,  position.x));
+        var y = Math.max(this.border.miny, Math.min(this.border.miny + this.border.height, position.y));
+        var portal = new Entity.Portal(this, owner, new Vec2(x, y), this.config.portalSize);
+        this.addNode(portal);
+        return portal;
+    }
+    // Spawns a FreezePowerup at the player's cursor (border-clamped, per-owner cap).
+    spawnFreezePowerup(position, owner) {
+        var max = this.config.freezePowerupMaxAmount || 5;
+        var liveCount = 0;
+        for (var i = 0; i < this.nodesFreezePowerups.length; i++) {
+            var p = this.nodesFreezePowerups[i];
+            if (!p.isRemoved && p.spawner === owner) liveCount++;
+        }
+        if (liveCount >= max) return null;
+        var x = Math.max(this.border.minx, Math.min(this.border.minx + this.border.width,  position.x));
+        var y = Math.max(this.border.miny, Math.min(this.border.miny + this.border.height, position.y));
+        var fp = new Entity.FreezePowerup(this, owner, new Vec2(x, y), this.config.freezePowerupSize);
+        this.addNode(fp);
+        return fp;
+    }
+    // Registers a player (owner) as an occupant of a portal. Called from
+    // resolveCollision on overlap; enterTick is stamped only on first entry so
+    // the force-kick timer runs from the moment the player was caught.
+    enterPortal(portal, owner) {
+        if (!owner || !owner.cells.length) return;
+        var ps = owner.portalState;
+        if (ps.portal !== portal) {
+            ps.portal = portal;
+            ps.enterTick = this.ticks;
+            ps.hiddenMass = 0;
+            ps.phase = 'sucking';
+        }
+        owner.portalActive = true;
     }
     spawnCells(virusCount, foodCount) {
         for (var i = 0; i < foodCount; i++) {
@@ -1234,7 +1336,7 @@ if (m.cell.vel && m.check.vel) {
         return true;
     }
     ejectMass(client) {
-        if (!this.canEjectMass(client) || client.cellsFrozen)
+        if (!this.canEjectMass(client) || client.cellsFrozen || client.freezePowerupTicks > 0)
             return;
         for (var i = 0; i < client.cells.length; i++) {
             var cell = client.cells[i];
