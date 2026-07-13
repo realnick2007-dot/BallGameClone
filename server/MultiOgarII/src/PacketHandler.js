@@ -69,6 +69,9 @@ class PacketHandler {
             28: this.message_onKey3.bind(this),  // Growth pellet powerup
             // Opcode 29: W key release — stops macro eject
             29: this.message_onKeyWRelease.bind(this),
+            30: this.message_onKeyU.bind(this),  // Portal powerup (U key)
+            31: this.message_onKeyY.bind(this),  // Freeze powerup (Y key)
+            32: this.message_onKeyS.bind(this),  // Speed powerup (S key)
             99: this.message_onChat.bind(this),
             254: this.message_onStat.bind(this),
         };
@@ -163,6 +166,36 @@ class PacketHandler {
 
         var pellet = this.server.spawnGrowthPellet(client.mouse, client);
         if (pellet) client.lastUsedGrowth = this.server.ticks;
+    }
+    /**
+     * U key (opcode 30) — drop a Portal at the player's cursor.
+     */
+    message_onKeyU(message) {
+        var client = this.socket.playerTracker;
+        if (!this.server.config.powerupPortal || client.spectate || client.cells.length === 0) return;
+        if (!client.canUsePortal()) return;
+        var portal = this.server.spawnPortal(client.mouse, client);
+        if (portal) client.lastUsedPortal = this.server.ticks;
+    }
+    /**
+     * Y key (opcode 31) — drop a FreezePowerup at the player's cursor.
+     */
+    message_onKeyY(message) {
+        var client = this.socket.playerTracker;
+        if (!this.server.config.powerupFreeze || client.spectate || client.cells.length === 0) return;
+        if (!client.canUseFreeze()) return;
+        var fp = this.server.spawnFreezePowerup(client.mouse, client);
+        if (fp) client.lastUsedFreeze = this.server.ticks;
+    }
+    /**
+     * S key (opcode 32) — instant self-cast speed boost (no entity).
+     */
+    message_onKeyS(message) {
+        var client = this.socket.playerTracker;
+        if (!this.server.config.powerupSpeed || client.spectate || client.cells.length === 0) return;
+        if (!client.canUseSpeed()) return;
+        client.speedBoostUntil = this.server.ticks + this.server.config.speedPowerupDuration * 25;
+        client.lastUsedSpeed = this.server.ticks;
     }
     /**
      * F key — toggle freeze/thaw for the player's own cells.

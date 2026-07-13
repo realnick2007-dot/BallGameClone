@@ -118,6 +118,43 @@ module.exports = Object.seal({
 "growthPelletMassBoost": 150000,
 "growthPelletLifeTime": 10,
 "growthPelletMaxAmount": 50,
+// [POWERUP: SPEED] instant self-cast on S key (opcode 32), no entity
+// powerupSpeed: enable the speed boost powerup
+// speedPowerupDuration: seconds the boost lasts (timestamp vs server.ticks)
+// speedPowerupMultiplier: movement/split/recombine speed multiplier while active
+// speedPowerupCooldown: seconds between casts
+"powerupSpeed": true,
+"speedPowerupDuration": 10,
+"speedPowerupMultiplier": 2,
+"speedPowerupCooldown": 15,
+// [POWERUP: FREEZE] entity (type 8) dropped at cursor on Y key (opcode 31)
+// freezePowerupDuration: seconds the eater is frozen (freezePowerupTicks, distinct from cellsFrozen)
+"powerupFreeze": true,
+"freezePowerupDuration": 4,
+"freezePowerupCooldown": 15,
+"freezePowerupSize": 60,
+"freezePowerupLifeTime": 20,
+"freezePowerupMaxAmount": 5,
+// [POWERUP: PORTAL] entity (type 7) dropped at cursor on U key (opcode 30)
+// portalSize: radius (slightly > virusMinSize). portalSuctionSpeed: world units/tick cells pulled toward center.
+// portalShrinkRate: fraction of cell size removed per tick (mass stored, restored on exit).
+// portalMinScale: shrink floor as fraction of portalSize. portalForceKickDelay: seconds until forced ejection.
+// portalLifetime: seconds until self-destruct. portalFeedRequired: ejected mass eaten per burst cycle.
+// portalBurstCount: purple mass spat per cycle. portalBurstCyclesToDestroy: cycles before feed-destroy.
+// portalDestroyBurstCount: purple mass spat on destroy. portalMassSizeMultiplier: burst mass size (slightly > ejectSize).
+"powerupPortal": true,
+"portalSize": 120,
+"portalCooldown": 30,
+"portalSuctionSpeed": 40,
+"portalShrinkRate": 0.03,
+"portalMinScale": 0.15,
+"portalForceKickDelay": 240,
+"portalLifetime": 300,
+"portalFeedRequired": 10,
+"portalBurstCount": 12,
+"portalBurstCyclesToDestroy": 15,
+"portalDestroyBurstCount": 30,
+"portalMassSizeMultiplier": 41,
 
 // [BORDER]
 // Border size (vanilla 14142.135623730952)

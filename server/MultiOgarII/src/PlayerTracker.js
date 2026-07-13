@@ -46,6 +46,18 @@ class PlayerTracker {
         this.lastUsedRecombine = 0;
         this.lastUsedVirus = 0;
         this.lastUsedGrowth = 0;
+        // Speed powerup (S key): timestamp (vs server.ticks) until which the
+        // movement/split/recombine speed multiplier is active. No decrement loop.
+        this.speedBoostUntil = 0;
+        this.lastUsedSpeed = 0;
+        // Freeze powerup (Y key): ticks of forced freeze remaining. DISTINCT from
+        // the cellsFrozen ability toggle so portal force-kick can tell them apart.
+        this.freezePowerupTicks = 0;
+        this.lastUsedFreeze = 0;
+        // Portal powerup (U key)
+        this.lastUsedPortal = 0;
+        this.portalActive = false; // true while any owned cell is inside a portal (skips decay)
+        this.portalState = { portal: null, enterTick: 0, phase: null, hiddenMass: 0, lastKickCheck: 0 };
         // Custom commands
         this.spawnmass = 0;
         this.frozen = false;
@@ -105,6 +117,15 @@ class PlayerTracker {
     canUseGrowth() {
         return this.lastUsedGrowth + this.server.config.powerupGrowthDelay * 25 <= this.server.ticks;
     }
+    canUseSpeed() {
+        return this.lastUsedSpeed + this.server.config.speedPowerupCooldown * 25 <= this.server.ticks;
+    }
+    canUseFreeze() {
+        return this.lastUsedFreeze + this.server.config.freezePowerupCooldown * 25 <= this.server.ticks;
+    }
+    canUsePortal() {
+        return this.lastUsedPortal + this.server.config.portalCooldown * 25 <= this.server.ticks;
+    }
     setName(name) {
         this._name = name;
         var writer = new BinaryWriter();
@@ -150,6 +171,12 @@ class PlayerTracker {
         this.spectateTarget = null;
         // Reset freeze state on respawn so player doesn't start frozen
         this.cellsFrozen = false;
+        // Reset new-powerup transient state so a stale value can't carry over lives
+        this.speedBoostUntil = 0;
+        this.lastUsedSpeed = 0;
+        this.freezePowerupTicks = 0;
+        this.portalActive = false;
+        this.portalState = { portal: null, enterTick: 0, phase: null, hiddenMass: 0, lastKickCheck: 0 };
         // BUG 2 FIX: reset growth cooldown on each spawn so a stale tick value
         // from a previous life never permanently blocks the powerup.
         this.lastUsedGrowth = 0;

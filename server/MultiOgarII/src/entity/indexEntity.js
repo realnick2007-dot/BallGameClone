@@ -7,4 +7,6 @@ module.exports = {
     EjectedMass: require('./EjectedMass'),
     GrowthPellet: require('./GrowthPellet'),
     Coin: require('./Coin'),
+    Portal: require('./Portal'),
+    FreezePowerup: require('./FreezePowerup'),
 };

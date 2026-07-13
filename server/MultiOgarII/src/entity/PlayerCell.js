@@ -17,6 +17,8 @@ class PlayerCell extends Cell {
     getSpeed(dist) {
         let speed = 2.2 * Math.pow(this._size, -0.45) * 40;
         speed *= this.speed ? this.speed : this.owner.speed ? this.owner.speed : this.server.config.playerSpeed;
+        if (this.owner && this.owner.speedBoostUntil > this.server.ticks)
+            speed *= (this.server.config.speedPowerupMultiplier || 2);
         speed = Math.min(dist, speed);
         if (dist != 0) speed /= dist;
         return speed;
