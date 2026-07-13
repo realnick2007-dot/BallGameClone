@@ -250,8 +250,27 @@
         }
         setInterval(sendMouseMove, 40);
 
+        // PATCH 4: Physics tick decoupled from rAF — runs at ~30Hz independently
+        setInterval(physicsTickAll, 33);
+
         null == ws && showConnecting();
         wjQuery("#overlays").show();
+    }
+
+    // PATCH 4: Standalone physics tick — runs movePoints() for all cells at 30Hz
+    // drawOneCell() will no longer call movePoints(); it only reads pre-computed points.
+    function physicsTickAll() {
+        // rebuild qTree once per physics tick (PATCH 5 integration)
+        if (qTreeDirty) {
+            rebuildQTree();
+            qTreeDirty = false;
+        }
+        var i, node;
+        for (i = 0; i < nodelist.length; i++) {
+            node = nodelist[i];
+            if (!node.destroyed && node.shouldRender()) node.movePoints();
+        }
+        // dead cells: skip full physics, just let them fade via updatePos in draw
     }
 
     function onTouchStart(e) {
@@ -313,40 +332,45 @@
         zoom > 4 / viewZoom && (zoom = 4 / viewZoom)
     }
 
+    // PATCH 5: qTree is rebuilt only when dirty (set by updateNodes), not every frame.
+    var qTreeDirty = false;
+
     function buildQTree() {
-        if (.4 > viewZoom) qTree = null;
-        else {
-            var a = Number.POSITIVE_INFINITY,
-                b = Number.POSITIVE_INFINITY,
-                c = Number.NEGATIVE_INFINITY,
-                d = Number.NEGATIVE_INFINITY,
-                e = 0;
-            for (var i = 0; i < nodelist.length; i++) {
-                var node = nodelist[i];
-                if (node.shouldRender() && !node.prepareData && 20 < node.size * viewZoom) {
-                    e = Math.max(node.size, e);
-                    a = Math.min(node.x, a);
-                    b = Math.min(node.y, b);
-                    c = Math.max(node.x, c);
-                    d = Math.max(node.y, d);
-                }
+        // No-op during rAF — actual rebuild is in rebuildQTree(), called by physicsTickAll.
+    }
+
+    function rebuildQTree() {
+        if (.4 > viewZoom) { qTree = null; return; }
+        var a = Number.POSITIVE_INFINITY,
+            b = Number.POSITIVE_INFINITY,
+            c = Number.NEGATIVE_INFINITY,
+            d = Number.NEGATIVE_INFINITY,
+            e = 0;
+        for (var i = 0; i < nodelist.length; i++) {
+            var node = nodelist[i];
+            if (node.shouldRender() && !node.prepareData && 20 < node.size * viewZoom) {
+                e = Math.max(node.size, e);
+                a = Math.min(node.x, a);
+                b = Math.min(node.y, b);
+                c = Math.max(node.x, c);
+                d = Math.max(node.y, d);
             }
-            qTree = Quad.init({
-                minX: a - (e + 100),
-                minY: b - (e + 100),
-                maxX: c + (e + 100),
-                maxY: d + (e + 100),
-                maxChildren: 2,
-                maxDepth: 4
-            });
-            for (i = 0; i < nodelist.length; i++) {
-                node = nodelist[i];
-                if (node.shouldRender() && !(20 >= node.size * viewZoom)) {
-                    for (a = 0; a < node.points.length; ++a) {
-                        b = node.points[a].x;
-                        c = node.points[a].y;
-                        b < nodeX - canvasWidth / 2 / viewZoom || c < nodeY - canvasHeight / 2 / viewZoom || b > nodeX + canvasWidth / 2 / viewZoom || c > nodeY + canvasHeight / 2 / viewZoom || qTree.insert(node.points[a]);
-                    }
+        }
+        qTree = Quad.init({
+            minX: a - (e + 100),
+            minY: b - (e + 100),
+            maxX: c + (e + 100),
+            maxY: d + (e + 100),
+            maxChildren: 2,
+            maxDepth: 4
+        });
+        for (i = 0; i < nodelist.length; i++) {
+            node = nodelist[i];
+            if (node.shouldRender() && !(20 >= node.size * viewZoom)) {
+                for (a = 0; a < node.points.length; ++a) {
+                    b = node.points[a].x;
+                    c = node.points[a].y;
+                    b < nodeX - canvasWidth / 2 / viewZoom || c < nodeY - canvasHeight / 2 / viewZoom || b > nodeX + canvasWidth / 2 / viewZoom || c > nodeY + canvasHeight / 2 / viewZoom || qTree.insert(node.points[a]);
                 }
             }
         }
@@ -387,10 +411,13 @@
         }
         var c = CONNECTION_URL;
         wsUrl = (useHttps ? "wss://" : "ws://") + c;
-        nodesOnScreen = [];
+        // PATCH 1: nodesOnScreen is now a Set for O(1) has/add/delete
+        nodesOnScreen = new Set();
         playerCells = [];
         nodes = {};
         nodelist = [];
+        // PATCH 2: nodeMap is a Map<id,Cell> for O(1) destroy
+        nodeMap = new Map();
         Cells = [];
         leaderBoard = [];
         mainCanvas = teamScores = null;
@@ -437,15 +464,15 @@
     }
 
     function handleWsMessage(msg) {
+        // PATCH 9: getString uses array+join — avoids O(N²) string concatenation
         function getString() {
-            var text = '',
-                char;
+            var chars = [], char;
             while ((char = msg.getUint16(offset, true)) != 0) {
                 offset += 2;
-                text += String.fromCharCode(char);
+                chars.push(String.fromCharCode(char));
             }
             offset += 2;
-            return text;
+            return chars.join('');
         }
 
         var offset = 0,
@@ -465,7 +492,8 @@
                 break;
             case 20: // clear nodes
                 playerCells = [];
-                nodesOnScreen = [];
+                // PATCH 1: reset as Set
+                nodesOnScreen = new Set();
                 break;
             case 21: // draw line
                 lineX = msg.getInt16(offset, true);
@@ -479,7 +507,8 @@
                 }
                 break;
             case 32: // add node
-                nodesOnScreen.push(msg.getUint32(offset, true));
+                // PATCH 1: Set.add() instead of array push
+                nodesOnScreen.add(msg.getUint32(offset, true));
                 offset += 4;
                 break;
             case 48: // update leaderboard (custom text)
@@ -538,15 +567,15 @@
     }
 
     function addChat(view, offset) {
+        // PATCH 9: getString uses array+join
         function getString() {
-            var text = '',
-                char;
+            var chars = [], char;
             while ((char = view.getUint16(offset, true)) != 0) {
                 offset += 2;
-                text += String.fromCharCode(char);
+                chars.push(String.fromCharCode(char));
             }
             offset += 2;
-            return text;
+            return chars.join('');
         }
 
         var flags = view.getUint8(offset++);
@@ -673,12 +702,15 @@
                 }
             }
 
-            for (var char, name = "";;) { // nick name
-                char = view.getUint16(offset, true);
+            // PATCH 9: nick name via array+join
+            var nameChars = [], nameChar;
+            for (;;) {
+                nameChar = view.getUint16(offset, true);
                 offset += 2;
-                if (0 == char) break;
-                name += String.fromCharCode(char);
+                if (0 == nameChar) break;
+                nameChars.push(String.fromCharCode(nameChar));
             }
+            var name = nameChars.join('');
 
             var node = null;
             if (nodes.hasOwnProperty(nodeid)) {
@@ -687,13 +719,18 @@
                 node.ox = node.x;
                 node.oy = node.y;
                 node.oSize = node.size;
+                // PATCH 6: setting .color via property setter caches strokeColor
                 node.color = colorstr;
             } else {
                 node = new Cell(nodeid, posX, posY, size, colorstr, name, _skin);
                 nodelist.push(node);
+                // PATCH 2: also register in nodeMap for O(1) destroy
+                nodeMap.set(nodeid, node);
                 nodes[nodeid] = node;
                 node.ka = posX;
                 node.la = posY;
+                // PATCH 3: new cell means sort order changed
+                nodelistDirty = true;
             }
             node.isVirus = flagVirus;
             node.isEjected = flagEjected;
@@ -706,7 +743,8 @@
             node.updateTime = timestamp;
             node.flag = flags;
             name && node.setName(name);
-            if (-1 != nodesOnScreen.indexOf(nodeid) && -1 == playerCells.indexOf(node)) {
+            // PATCH 1: nodesOnScreen is now a Set — O(1) has()
+            if (nodesOnScreen.has(nodeid) && -1 == playerCells.indexOf(node)) {
                 document.getElementById("overlays").style.display = "none";
                 playerCells.push(node);
                 if (1 == playerCells.length) {
@@ -723,6 +761,8 @@
             node = nodes[nodeId];
             null != node && node.destroy();
         }
+        // PATCH 5: mark qTree as needing rebuild after server update
+        qTreeDirty = true;
         ua && 0 == playerCells.length && showOverlays(false)
     }
 
@@ -836,7 +876,7 @@
             // Hide inventory when dead / spectating
             if (typeof inventoryHide === 'function') inventoryHide();
         }
-        buildQTree();
+        // PATCH 5: buildQTree() is now a no-op here; qTree is rebuilt in physicsTickAll
         mouseCoordinateChange();
         xa || ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         if (xa) {
@@ -854,9 +894,13 @@
         } else {
             drawGrid();
         }
-        nodelist.sort(function(a, b) {
-            return a.size === b.size ? a.id - b.id : a.size - b.size
-        });
+        // PATCH 3: only sort when a cell size/insertion changed (dirty flag)
+        if (nodelistDirty) {
+            nodelist.sort(function(a, b) {
+                return a.size === b.size ? a.id - b.id : a.size - b.size;
+            });
+            nodelistDirty = false;
+        }
         ctx.save();
         ctx.translate(canvasWidth / 2, canvasHeight / 2);
         ctx.scale(viewZoom, viewZoom);
@@ -945,6 +989,7 @@
         ctx.restore();
     }
 
+    // PATCH 8: single beginPath + single stroke() for all grid lines
     function drawGrid() {
         ctx.fillStyle = showDarkTheme ? "#111111" : "#F2FBFF";
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
@@ -954,17 +999,16 @@
         ctx.scale(viewZoom, viewZoom);
         var a = canvasWidth / viewZoom,
             b = canvasHeight / viewZoom;
+        ctx.beginPath();
         for (var c = -.5 + (-nodeX + a / 2) % 50; c < a; c += 50) {
             ctx.moveTo(c, 0);
             ctx.lineTo(c, b);
         }
-        ctx.stroke();
-        ctx.beginPath();
         for (c = -.5 + (-nodeY + b / 2) % 50; c < b; c += 50) {
             ctx.moveTo(0, c);
             ctx.lineTo(a, c);
         }
-        ctx.stroke()
+        ctx.stroke();
         ctx.restore()
     }
 
@@ -1015,7 +1059,8 @@
                         if (!showName) {
                             (c = "An unnamed cell");
                         }
-                        var me = -1 != nodesOnScreen.indexOf(leaderBoard[b].id);
+                        // PATCH 1: nodesOnScreen.has() — O(1)
+                        var me = nodesOnScreen.has(leaderBoard[b].id);
                         if (me) playerCells[0].name && (c = playerCells[0].name);
                         me ? ctx.fillStyle = "#FFAAAA" : ctx.fillStyle = "#FFFFFF";
                         if (!noRanking) c = b + 1 + ". " + c;
@@ -1041,12 +1086,25 @@
         this.ox = this.x = ux;
         this.oy = this.y = uy;
         this.oSize = this.size = usize;
-        this.color = ucolor;
+        // PATCH 6: use _color/_strokeColor backing fields; color setter caches stroke
+        this._color = ucolor;
+        this._strokeColor = computeStrokeColor(ucolor);
         this.points = [];
         this.pointsAcc = [];
         this.createPoints();
         this.setName(uname)
         this._skin = a;
+    }
+
+    // PATCH 6: standalone helper — computes stroke color from a hex color string
+    function computeStrokeColor(hex) {
+        var r = (~~(parseInt(hex.substr(1, 2), 16) * 0.9)).toString(16),
+            g = (~~(parseInt(hex.substr(3, 2), 16) * 0.9)).toString(16),
+            b = (~~(parseInt(hex.substr(5, 2), 16) * 0.9)).toString(16);
+        if (r.length == 1) r = "0" + r;
+        if (g.length == 1) g = "0" + g;
+        if (b.length == 1) b = "0" + b;
+        return "#" + r + g + b;
     }
 
     function UText(usize, ucolor, ustroke, ustrokecolor) {
@@ -1063,9 +1121,12 @@
         ws = null,
         nodeX = 0,
         nodeY = 0,
-        nodesOnScreen = [],
+        // PATCH 1: nodesOnScreen is a Set
+        nodesOnScreen = new Set(),
         playerCells = [],
         nodes = {},
+        // PATCH 2: nodeMap for O(1) destroy
+        nodeMap = new Map(),
         nodelist = [],
         Cells = [],
         leaderBoard = [],
@@ -1106,6 +1167,8 @@
         teamColor = ["#333333", "#FF3333", "#33FF33", "#3333FF"],
         xa = false,
         zoom = 1,
+        // PATCH 3: dirty flag for sort — set true whenever nodelist order may change
+        nodelistDirty = false,
         isTouchStart = "ontouchstart" in wHandle && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
         splitIcon = new Image,
         ejectIcon = new Image,
@@ -1243,11 +1306,24 @@
         isEjected: false,
         isAgitated: false,
         wasSimpleDrawing: true,
+        // PATCH 6: _color and _strokeColor backing fields with JS getter/setter
+        _color: "#000000",
+        _strokeColor: "#000000",
+        get color() { return this._color; },
+        set color(val) {
+            if (val !== this._color) {
+                this._color = val;
+                this._strokeColor = computeStrokeColor(val);
+            }
+        },
         destroy: function() {
+            // PATCH 2: O(1) nodeMap removal; still update nodelist array
+            nodeMap.delete(this.id);
             var tmp;
             for (tmp = 0, len = nodelist.length; tmp < len; tmp++)
                 if (nodelist[tmp] === this) {
                     nodelist.splice(tmp, 1);
+                    nodelistDirty = true; // PATCH 3
                     break
                 }
             delete nodes[this.id];
@@ -1256,8 +1332,8 @@
                 ua = true;
                 playerCells.splice(tmp, 1);
             }
-            tmp = nodesOnScreen.indexOf(this.id);
-            if (-1 != tmp) nodesOnScreen.splice(tmp, 1);
+            // PATCH 1: Set.delete() — O(1)
+            nodesOnScreen.delete(this.id);
             this.destroyed = true;
             Cells.push(this)
         },
@@ -1275,6 +1351,8 @@
             }
         },
         setSize: function(a) {
+            // PATCH 3: mark dirty when size changes so sort runs next frame
+            if (a !== this.nSize) nodelistDirty = true;
             this.nSize = a;
             var m = ~~(this.size * this.size * 0.01);
             if (null === this.sizeCache)
@@ -1387,14 +1465,9 @@
                 return !(this.x + this.size + 40 < nodeX - canvasWidth / 2 / viewZoom || this.y + this.size + 40 < nodeY - canvasHeight / 2 / viewZoom || this.x - this.size - 40 > nodeX + canvasWidth / 2 / viewZoom || this.y - this.size - 40 > nodeY + canvasHeight / 2 / viewZoom);
             }
         },
+        // PATCH 6: getStrokeColor() now just returns the cached value
         getStrokeColor: function() {
-            var r = (~~(parseInt(this.color.substr(1, 2), 16) * 0.9)).toString(16),
-                g = (~~(parseInt(this.color.substr(3, 2), 16) * 0.9)).toString(16),
-                b = (~~(parseInt(this.color.substr(5, 2), 16) * 0.9)).toString(16);
-            if (r.length == 1) r = "0" + r;
-            if (g.length == 1) g = "0" + g;
-            if (b.length == 1) b = "0" + b;
-            return "#" + r + g + b;
+            return this._strokeColor;
         },
         drawOneCell: function(ctx) {
             if (this.shouldRender()) {
@@ -1407,13 +1480,18 @@
                     for (var c = 0; c < this.points.length; c++) bigPointSize = Math.max(this.points[c].size, bigPointSize);
                 }
                 this.wasSimpleDrawing = b;
-                ctx.save();
+                // PATCH 7: removed ctx.save() from hot loop — we manually reset only globalAlpha
                 this.drawTime = timestamp;
                 c = this.updatePos();
-                this.destroyed && (ctx.globalAlpha *= 1 - c);
+                var savedAlpha = 1;
+                if (this.destroyed) {
+                    savedAlpha = ctx.globalAlpha;
+                    ctx.globalAlpha *= 1 - c;
+                }
 
                 // Draw coin cells with a gold circle and optional coin image
                 if (this.isCoin) {
+                    ctx.save();
                     ctx.translate(this.x, this.y);
                     ctx.beginPath();
                     ctx.arc(0, 0, this.size, 0, 2 * Math.PI);
@@ -1438,9 +1516,10 @@
                     ctx.fillStyle = "#FFFFFF";
                     ctx.strokeStyle = "#AAAAAA";
                 } else {
-                    ctx.fillStyle = this.color;
-                    if (b) ctx.strokeStyle = this.getStrokeColor();
-                    else ctx.strokeStyle = this.color;
+                    ctx.fillStyle = this._color;
+                    // PATCH 6: strokeColor is now cached — no hex parsing here
+                    if (b) ctx.strokeStyle = this._strokeColor;
+                    else ctx.strokeStyle = this._color;
                 }
 				ctx.beginPath();
                 if (b) {
@@ -1449,17 +1528,19 @@
                     ctx.arc(this.x, this.y, this.size - lw * 0.5 + 5, 0, 2 * Math.PI, false);
                     ctx.stroke();
                 } else {
-                    this.movePoints();
+                    // PATCH 4: movePoints() is NO LONGER called here — physics runs in physicsTickAll()
                     ctx.beginPath();
                     var d = this.getNumPoints();
-                    ctx.moveTo(this.points[0].x, this.points[0].y);
-                    for (c = 1; c <= d; ++c) {
-                        var e = c % d;
-                        ctx.lineTo(this.points[e].x, this.points[e].y);
+                    if (this.points.length > 0) {
+                        ctx.moveTo(this.points[0].x, this.points[0].y);
+                        for (c = 1; c <= d; ++c) {
+                            var e = c % d;
+                            ctx.lineTo(this.points[e].x, this.points[e].y);
+                        }
                     }
                 }
                 ctx.closePath();
-                var skinName = this.name.toLowerCase();
+                var skinName = this.name ? this.name.toLowerCase() : '';
 
                 // Use explicit skin if sent by server (strip leading % prefix)
                 if (typeof this._skin != 'undefined' && this._skin != '') {
@@ -1492,7 +1573,8 @@
                     ctx.globalAlpha *= .1;
                     ctx.stroke();
                 }
-                ctx.globalAlpha = 1; 
+                // PATCH 7: restore globalAlpha manually instead of ctx.restore()
+                ctx.globalAlpha = savedAlpha;
                 c = -1 != playerCells.indexOf(this);
                 var ncache;
                 if (0 != this.id) {
@@ -1525,7 +1607,10 @@
                         ctx.drawImage(e, x - ~~(m * 0.5), g, m, h);
                     }
                 }
-                ctx.restore();
+                // PATCH 7: reset lineWidth and lineCap to defaults after draw
+                ctx.lineWidth = 1;
+                ctx.lineCap = "butt";
+                ctx.lineJoin = "miter";
             }
         }
     };
