@@ -1319,22 +1319,6 @@
             if (this.flag & 32)(b *= .25);
             return ~~Math.max(b, a);
         },
-		if (this.isCoin) {
-    // Draw a gold circle
-    ctx.beginPath();
-    ctx.arc(0, 0, this.size, 0, 2 * Math.PI);
-    ctx.fillStyle = '#FFD700';
-    ctx.fill();
-    ctx.strokeStyle = '#B8860B';
-    ctx.lineWidth = Math.max(3, this.size * 0.08);
-    ctx.stroke();
-    // Overlay coin image if loaded
-    if (wHandle.coinImage && wHandle.coinImage.complete) {
-        var s = this.size * 1.6;
-        ctx.drawImage(wHandle.coinImage, -s/2, -s/2, s, s);
-    }
-    return; // skip normal blob drawing
-}
         movePoints: function() {
             this.createPoints();
             for (var points = this.points, pointsacc = this.pointsAcc, numpoints = points.length, i = 0; i < numpoints; ++i) {
@@ -1427,6 +1411,26 @@
                 this.drawTime = timestamp;
                 c = this.updatePos();
                 this.destroyed && (ctx.globalAlpha *= 1 - c);
+
+                // Draw coin cells with a gold circle and optional coin image
+                if (this.isCoin) {
+                    ctx.translate(this.x, this.y);
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.size, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#FFD700';
+                    ctx.fill();
+                    ctx.strokeStyle = '#B8860B';
+                    ctx.lineWidth = Math.max(3, this.size * 0.08);
+                    ctx.stroke();
+                    // Overlay coin image if loaded
+                    if (wHandle.coinImage && wHandle.coinImage.complete) {
+                        var s = this.size * 1.6;
+                        ctx.drawImage(wHandle.coinImage, -s/2, -s/2, s, s);
+                    }
+                    ctx.restore();
+                    return; // skip normal blob drawing
+                }
+
                 ctx.lineWidth = 10;
                 ctx.lineCap = "round";
                 ctx.lineJoin = this.isVirus ? "miter" : "round";
