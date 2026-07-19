@@ -92,6 +92,22 @@ class QuadNode {
         var node = item._quadNode;
         if (item.anchored && node && node.bound.contains(item.bound))
             return;
+        // FIX: an item sitting at a parent node because it used to straddle a
+        // quadrant line (e.g. a cell mid-way through a cardinal up/down/left/right
+        // split) can drift clear of that line on later ticks without ever being
+        // reinserted, since anchored items short-circuit above once they fit
+        // their *current* node. Re-check against the node's own children here so
+        // it gets pushed down into the correct quadrant as soon as it qualifies,
+        // instead of staying piled at the parent for the rest of its life.
+        if (node && node.childNodes.length !== 0) {
+            var quad = node.getQuad(item.bound);
+            if (quad !== -1) {
+                node.items.splice(node.items.indexOf(item), 1);
+                node.childNodes[quad].items.push(item);
+                item._quadNode = node.childNodes[quad];
+                return;
+            }
+        }
         if (node)
             this.remove(item);
         this.insert(item);
